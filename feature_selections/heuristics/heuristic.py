@@ -19,7 +19,7 @@ class Heuristic(FeatureSelection):
                  N=None, Gmax=None, Tmax=None, ratio=None, suffix=None, verbose=None):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, Gmax, Tmax, ratio,
                          suffix, verbose)
-        self.N = N or 100
+        self.N = N or 50
 
     @abc.abstractmethod
     def start(self, pid):

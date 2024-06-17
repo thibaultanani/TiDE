@@ -121,7 +121,7 @@ class Filter(FeatureSelection):
     @staticmethod
     def reliefF_selection(df, target):
         X = df.drop([target], axis=1).values.astype('float64')
-        y = df[target].values.astype('float64')
+        y = df[target].values
         relief = ReliefF(n_neighbors=100, n_features_to_select=X.shape[1])
         relief.fit(X, y)
         rel_scores = relief.feature_importances_

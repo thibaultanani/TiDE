@@ -26,29 +26,21 @@ from sklearn.metrics.pairwise import rbf_kernel
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline
 
-
 if __name__ == '__main__':
-    datasets = ['scene', 'madelon', 'gravier', 'tian']
-    targets = ['Urban', 'Class', 'y', 'y']
-    drops_list = [["id", "Beach", "Sunset", "FallFoliage", "Field", "Mountain"], ["id"], [], []]
-    stds = [False, True, False, False]
+    datasets = ['gina_prior', 'gina_agnostic', 'christensen', 'internet', 'hiva_agnostic', 'bioresponse', 'gravier']
+    stds = [False, False, False, True, False, False, False]
     metric = balanced_accuracy_score
-    tmax = 180
+    tmax = 10800
     k = 5
     verbose = True
-    m = [LogisticRegression(random_state=42, solver="lbfgs", class_weight="balanced", max_iter=10000),
-         RidgeClassifier(random_state=42, class_weight="balanced"), SVC(kernel=rbf_kernel, class_weight="balanced"),
-         KNeighborsClassifier(n_neighbors=5, weights="distance"),
-         DecisionTreeClassifier(random_state=42, class_weight='balanced'),
-         RandomForestClassifier(random_state=42, class_weight='balanced'),
-         GaussianNB()]
+    m = [LogisticRegression(random_state=42, solver="lbfgs", class_weight="balanced", max_iter=10000)]
     for i in range(len(datasets)):
         train = read(filename=datasets[i])
         test = None
-        name = datasets[i]
-        target = targets[i]
+        name = datasets[i] + "_lr"
+        target = "target"
         std = stds[i]
-        drops = drops_list[i]
+        drops = []
         rand = Random(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                       metric=metric, model=m, Tmax=tmax, verbose=verbose)
         local = LocalSearch(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
@@ -62,7 +54,7 @@ if __name__ == '__main__':
         pbil = Pbil(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                     metric=metric, model=m, Tmax=tmax, verbose=verbose)
         tide = Tide(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                    metric=metric, model=m, Tmax=tmax, suffix='_reliefF', verbose=verbose)
+                    metric=metric, model=m, Tmax=tmax, suffix='_randomforest', verbose=verbose)
         tide2 = Tide(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                      metric=metric, model=m, Tmax=tmax, verbose=verbose, filter_init=False)
         corr = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,

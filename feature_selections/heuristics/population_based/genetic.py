@@ -7,6 +7,7 @@ from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
 from utility.utility import createDirectory, add, get_entropy, create_population_models, fitness
 
+
 class Genetic(Heuristic):
     """
     Class that implements the genetic algorithm heuristic.
@@ -140,7 +141,7 @@ class Genetic(Heuristic):
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                      time_total=time_debut, entropy=entropy, g=G, cpt=same2, verbose=self.verbose) + "\n"
             # If diversity is too low restart
-            if entropy < self.entropy or same1 >= 300:
+            if entropy < self.entropy:
                 same1 = 0
                 P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
                 # P[0] = indMax

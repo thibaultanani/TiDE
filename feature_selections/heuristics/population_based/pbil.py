@@ -156,7 +156,7 @@ class Pbil(Heuristic):
             probas = self.mutate_probas(probas=probas, MP=self.MP, MS=self.MS)
             m_probas = self.mutate_probas_models(m_probas=m_probas, MP=self.MP, MS=self.MS)
             # If diversity is too low restart
-            if entropy < self.entropy or same1 >= 300:
+            if entropy < self.entropy:
                 same1 = 0
                 probas = self.create_probas(size=self.D)
                 m_probas = self.create_probas_models(size=len(self.model))

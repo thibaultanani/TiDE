@@ -24,6 +24,7 @@ class Differential(Heuristic):
         self.F = F or 1.0
         self.CR = CR or 0.5
         self.entropy = entropy or 0.02
+        self.indMax = None
         self.path = os.path.join(self.path, 'differential' + self.suffix)
         createDirectory(path=self.path)
 
@@ -128,7 +129,7 @@ class Differential(Heuristic):
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                      time_total=time_debut, entropy=entropy, g=G, cpt=same2, verbose=self.verbose) + "\n"
             # If diversity is too low restart
-            if entropy < self.entropy or same1 >= 300:
+            if entropy < self.entropy:
                 same1 = 0
                 P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
                 # P[0] = indMax

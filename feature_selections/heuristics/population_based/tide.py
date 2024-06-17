@@ -2,6 +2,7 @@ import os
 import random
 import time
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
@@ -15,17 +16,17 @@ class Tide(Heuristic):
 
     Args:
         alpha (float)     : The minimum threshold for the percentage of individuals to be selected by tournament
-        Tmax_reliefF (int): Total number of seconds allocated for searching best features subset with reliefF
+        Tmax_filter (int) : Total number of seconds allocated for searching best features subset with filter method
         filter_init (bool): The choice of using a filter method for initialisation
         entropy (float)   : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, model, train, test=None, drops=None, metric=None, Tmax=None, ratio=None,
-                 N=None, Gmax=None, alpha=None, Tmax_reliefF=None, filter_init=None, entropy=None, suffix=None,
+                 N=None, Gmax=None, alpha=None, Tmax_filter=None, filter_init=None, entropy=None, suffix=None,
                  k=None, standardisation=None, verbose=None):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
         self.alpha = alpha or 0.9
-        self.Tmax_reliefF = Tmax_reliefF or Tmax / 10
+        self.Tmax_filter = Tmax_filter or Tmax / 10
         if filter_init is False:
             self.filter_init = False
         else:
@@ -34,16 +35,16 @@ class Tide(Heuristic):
         self.path = os.path.join(self.path, 'tide' + self.suffix)
         createDirectory(path=self.path)
 
-    def relief_init(self):
+    def rf_init(self):
         debut = time.time()
-        X = self.train.drop([self.target], axis=1).values.astype('float64')
-        y = self.train[self.target].values.astype('float64')
-        relief = ReliefF(n_features_to_select=self.k)
-        relief.fit(X, y)
-        rel_scores = relief.feature_importances_
-        rel_results = list(zip(self.train.columns, rel_scores))
-        rel_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in rel_results]
+        X = self.train.drop([self.target], axis=1)
+        y = self.train[self.target]
+        rf = RandomForestClassifier(n_estimators=1000, random_state=42)
+        rf.fit(X, y)
+        rf_scores = rf.feature_importances_
+        rf_results = list(zip(X.columns, rf_scores))
+        rf_results.sort(key=lambda x: x[1], reverse=True)
+        sorted_features = [feature for feature, _ in rf_results]
         score, model, col, vector, G = -np.inf, 0, 0, 0, 0
         while G < self.Gmax:
             k = random.randint(1, self.D)
@@ -59,12 +60,11 @@ class Tide(Heuristic):
             if s > score:
                 score, vector = s, v
                 col = [self.cols[i] for i in range(len(self.cols)) if v[i]]
-            if time.time() - debut >= self.Tmax_reliefF:
+            if time.time() - debut >= self.Tmax_filter:
                 break
         if self.verbose:
-            print("reliefF:", score, len(col), self.model[vector[-1]].__class__.__name__)
+            print("filter:", score, len(col), self.model[vector[-1]].__class__.__name__)
         return vector
-
 
     @staticmethod
     def mutate(P, n_ind, current, selected):
@@ -107,7 +107,7 @@ class Tide(Heuristic):
     def specifics(self, bestInd, g, t, last, out):
         if self.filter_init:
             string = "k: " + str(self.k)
-            name = "Tournament In Differential Evolution + ReliefF"
+            name = "Tournament In Differential Evolution + Random Forest"
         else:
             string = "k: No filter initialization"
             name = "Tournament In Differential Evolution"
@@ -129,7 +129,7 @@ class Tide(Heuristic):
         P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
         r = None
         if self.filter_init:
-            r = self.relief_init()
+            r = self.rf_init()
             P[0] = r
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
@@ -184,7 +184,7 @@ class Tide(Heuristic):
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                      time_total=time_debut, entropy=entropy, g=G, cpt=same2, verbose=self.verbose) + "\n"
             # If diversity is too low restart
-            if entropy < self.entropy or same1 >= 300:
+            if entropy < self.entropy:
                 same1 = 0
                 P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
                 if self.filter_init:

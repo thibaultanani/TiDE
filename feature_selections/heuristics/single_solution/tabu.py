@@ -128,16 +128,16 @@ class Tabu(Heuristic):
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                      time_total=time_debut, g=G, cpt=same2, verbose=self.verbose) + "\n"
             # If convergence is reached restart
-            if same1 >= 300:
-                same1 = 0
-                P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
-                # Evaluates population
-                scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                                  models=self.model, metric=self.metric, standardisation=self.standardisation,
-                                  ratio=self.ratio, k=self.k)[0] for ind in P]
-                bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-                tabuList = Queue(maxsize=self.size)
-                tabuList = self.insert_tabu(tabuList=tabuList, individual=bestInd)
+            # if same1 >= 300:
+            #     same1 = 0
+            #     P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+            #     # Evaluates population
+            #     scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
+            #                       models=self.model, metric=self.metric, standardisation=self.standardisation,
+            #                       ratio=self.ratio, k=self.k)[0] for ind in P]
+            #     bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
+            #     tabuList = Queue(maxsize=self.size)
+            #     tabuList = self.insert_tabu(tabuList=tabuList, individual=bestInd)
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
                 stop = True

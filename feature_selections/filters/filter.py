@@ -9,7 +9,7 @@ from mrmr import mrmr_classif
 from scipy.stats import spearmanr
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import f_classif, mutual_info_classif
-from skrebate import ReliefF
+from skrebate import ReliefF, SURF, MultiSURF, TuRF
 
 from feature_selections import FeatureSelection
 from utility import createDirectory, fitness
@@ -35,7 +35,13 @@ class Filter(FeatureSelection):
         elif method == "MRMR":
             self.method, self.func, self.v_name = "MRMR", self.mrmr_selection, "MRMR"
         elif method == "ReliefF":
-            self.method, self.func, self.v_name = "ReliefF", self.reliefF_selection, "RELI"
+            self.method, self.func, self.v_name = "ReliefF", self.relieff_selection, "RELI"
+        elif method == "SURF":
+            self.method, self.func, self.v_name = "SURF", self.surf_selection, "SURF"
+        elif method == "MultiSURF":
+            self.method, self.func, self.v_name = "MultiSURF", self.multisurf_selection, "MS  "
+        elif method == "TURF":
+            self.method, self.func, self.v_name = "TURF", self.turf_selection, "TURF"
         elif method == "RandomForest":
             self.method, self.func, self.v_name = "RandomForest", self.random_forest_selection, "RF  "
         self.path = os.path.join(self.path, str.lower(self.method) + self.suffix)
@@ -119,7 +125,7 @@ class Filter(FeatureSelection):
         return sorted_features
 
     @staticmethod
-    def reliefF_selection(df, target):
+    def relieff_selection(df, target):
         X = df.drop([target], axis=1).values.astype('float64')
         y = df[target].values
         relief = ReliefF(n_neighbors=100, n_features_to_select=X.shape[1])
@@ -128,6 +134,43 @@ class Filter(FeatureSelection):
         rel_results = list(zip(df.columns, rel_scores))
         rel_results.sort(key=lambda x: x[1], reverse=True)
         sorted_features = [feature for feature, _ in rel_results]
+        return sorted_features
+
+    @staticmethod
+    def surf_selection(df, target):
+        X = df.drop([target], axis=1).values.astype('float64')
+        y = df[target].values
+        surf = SURF(n_features_to_select=X.shape[1])
+        surf.fit(X, y)
+        surf_scores = surf.feature_importances_
+        surf_results = list(zip(df.columns, surf_scores))
+        surf_results.sort(key=lambda x: x[1], reverse=True)
+        sorted_features = [feature for feature, _ in surf_results]
+        return sorted_features
+
+    @staticmethod
+    def multisurf_selection(df, target):
+        X = df.drop([target], axis=1).values.astype('float64')
+        y = df[target].values
+        multisurf = MultiSURF(n_features_to_select=X.shape[1])
+        multisurf.fit(X, y)
+        multi_scores = multisurf.feature_importances_
+        multi_results = list(zip(df.columns, multi_scores))
+        multi_results.sort(key=lambda x: x[1], reverse=True)
+        sorted_features = [feature for feature, _ in multi_results]
+        return sorted_features
+
+    @staticmethod
+    def turf_selection(df, target):
+        headers = list(df.drop([target], axis=1))
+        X = df.drop([target], axis=1).values.astype('float64')
+        y = df[target].values
+        turf = TuRF(core_algorithm="ReliefF", n_features_to_select=X.shape[1])
+        turf.fit(X, y, headers=headers)
+        turf_scores = turf.feature_importances_
+        turf_results = list(zip(df.columns, turf_scores))
+        turf_results.sort(key=lambda x: x[1], reverse=True)
+        sorted_features = [feature for feature, _ in turf_results]
         return sorted_features
 
     @staticmethod

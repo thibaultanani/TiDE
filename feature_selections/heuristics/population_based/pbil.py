@@ -160,4 +160,4 @@ class Pbil(Heuristic):
                 same1 = 0
                 probas = self.create_probas(size=self.D)
                 m_probas = self.create_probas_models(size=len(self.model))
-        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code
+        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code, G - same2, G

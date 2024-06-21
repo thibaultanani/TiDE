@@ -231,5 +231,5 @@ class Filter(FeatureSelection):
                 print_out = ""
                 if stop:
                     break
-        return score, vector, col, self.model[vector[-1]], pid, self.v_name
+        return score, vector, col, self.model[vector[-1]], pid, self.v_name, G - same, G
 

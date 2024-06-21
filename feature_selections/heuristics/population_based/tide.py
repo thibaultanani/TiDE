@@ -37,14 +37,15 @@ class Tide(Heuristic):
 
     def rf_init(self):
         debut = time.time()
-        X = self.train.drop([self.target], axis=1)
-        y = self.train[self.target]
-        rf = RandomForestClassifier(n_estimators=1000, random_state=42)
-        rf.fit(X, y)
-        rf_scores = rf.feature_importances_
-        rf_results = list(zip(X.columns, rf_scores))
-        rf_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in rf_results]
+        cols = self.train.drop([self.target], axis=1).columns
+        X = self.train.drop([self.target], axis=1).values.astype('float64')
+        y = self.train[self.target].values
+        relief = ReliefF(n_neighbors=100, n_features_to_select=X.shape[1])
+        relief.fit(X, y)
+        rel_scores = relief.feature_importances_
+        rel_results = list(zip(cols, rel_scores))
+        rel_results.sort(key=lambda x: x[1], reverse=True)
+        sorted_features = [feature for feature, _ in rel_results]
         score, model, col, vector, G = -np.inf, 0, 0, 0, 0
         while G < self.Gmax:
             k = random.randint(1, self.D)
@@ -107,7 +108,7 @@ class Tide(Heuristic):
     def specifics(self, bestInd, g, t, last, out):
         if self.filter_init:
             string = "k: " + str(self.k)
-            name = "Tournament In Differential Evolution + Random Forest"
+            name = "Tournament In Differential Evolution + ReliefF"
         else:
             string = "k: No filter initialization"
             name = "Tournament In Differential Evolution"
@@ -203,4 +204,4 @@ class Tide(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code
+        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code, G - same2, G

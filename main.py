@@ -27,8 +27,8 @@ from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline
 
 if __name__ == '__main__':
-    datasets = ['baseline']
-    stds = [True]
+    datasets = ['feature_noise', 'madelon', 'tian', 'hiva_agnostic']
+    stds = [False, True, True, True]
     metric = balanced_accuracy_score
     tmax = 3600*5
     k = 5
@@ -37,7 +37,7 @@ if __name__ == '__main__':
                [RandomForestClassifier(n_estimators=5, class_weight="balanced", random_state=42)],
                [KNeighborsClassifier(weights='distance')],
                [SVC(random_state=42, class_weight="balanced", kernel=rbf_kernel)]]
-    suffixes = ['logistic', 'random', 'knn', 'svc']
+    suffixes = ['_logistic', '_random', '_knn', '_svc']
     for l in range(len(methods)):
         m = methods[l]
         suffix = suffixes[l]
@@ -61,7 +61,7 @@ if __name__ == '__main__':
             pbil = Pbil(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                         metric=metric, model=m, Tmax=tmax, verbose=verbose)
             tide = Tide(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                        metric=metric, model=m, Tmax=tmax, suffix='_randomforest', verbose=verbose)
+                        metric=metric, model=m, Tmax=tmax, suffix='_reliefF', verbose=verbose)
             tide2 = Tide(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                          metric=metric, model=m, Tmax=tmax, verbose=verbose, filter_init=False)
             corr = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,

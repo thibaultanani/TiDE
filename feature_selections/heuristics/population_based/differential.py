@@ -147,4 +147,4 @@ class Differential(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code
+        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code, G - same2, G

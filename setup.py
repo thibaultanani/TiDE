@@ -19,5 +19,5 @@ setup(
     author_email='thuny.ta@gmail.com',
     description='Implements multiple type of filter methods and heuristics for the feature selection problem in '
                 'machine learning as well as a new one: tournament in differential evolution',
-    url='https://github.com/thibaultanani/Tournament-in-Differential-Evolution',
+    url='https://github.com/thibaultanani/TiDE',
 )

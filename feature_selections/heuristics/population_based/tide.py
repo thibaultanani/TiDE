@@ -2,11 +2,10 @@ import os
 import random
 import time
 import numpy as np
-from sklearn.ensemble import RandomForestClassifier
 
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
-from skrebate import ReliefF
+from mrmr import mrmr_classif
 from utility.utility import createDirectory, add, get_entropy, create_population_models, fitness
 
 
@@ -35,17 +34,11 @@ class Tide(Heuristic):
         self.path = os.path.join(self.path, 'tide' + self.suffix)
         createDirectory(path=self.path)
 
-    def rf_init(self):
+    def mrmr_init(self):
         debut = time.time()
-        cols = self.train.drop([self.target], axis=1).columns
-        X = self.train.drop([self.target], axis=1).values.astype('float64')
-        y = self.train[self.target].values
-        relief = ReliefF(n_neighbors=100, n_features_to_select=X.shape[1])
-        relief.fit(X, y)
-        rel_scores = relief.feature_importances_
-        rel_results = list(zip(cols, rel_scores))
-        rel_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in rel_results]
+        X = self.train.drop([self.target], axis=1)
+        y = self.train[self.target]
+        sorted_features = mrmr_classif(X=X, y=y, K=X.shape[1], n_jobs=1)
         score, model, col, vector, G = -np.inf, 0, 0, 0, 0
         while G < self.Gmax:
             k = random.randint(1, self.D)
@@ -108,7 +101,7 @@ class Tide(Heuristic):
     def specifics(self, bestInd, g, t, last, out):
         if self.filter_init:
             string = "k: " + str(self.k)
-            name = "Tournament In Differential Evolution + ReliefF"
+            name = "Tournament In Differential Evolution + MRMR"
         else:
             string = "k: No filter initialization"
             name = "Tournament In Differential Evolution"
@@ -130,7 +123,7 @@ class Tide(Heuristic):
         P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
         r = None
         if self.filter_init:
-            r = self.rf_init()
+            r = self.mrmr_init()
             P[0] = r
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,

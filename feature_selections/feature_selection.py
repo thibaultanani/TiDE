@@ -2,7 +2,7 @@ import os
 import numpy as np
 import abc
 import pandas as pd
-from sklearn.metrics import balanced_accuracy_score
+from sklearn.metrics import balanced_accuracy_score, confusion_matrix
 
 
 class FeatureSelection:
@@ -44,7 +44,7 @@ class FeatureSelection:
         self.k = k or 10
         self.Gmax = Gmax or 1000000
         self.Tmax = Tmax or 3600
-        self.ratio = ratio or 0.001
+        self.ratio = ratio or 0.00001
         self.suffix = suffix or ''
         self.verbose = verbose or True
         self.standardisation = standardisation or False
@@ -58,8 +58,9 @@ class FeatureSelection:
 
     @staticmethod
     def calculate_confusion_matrix_components(y_true, y_pred):
-        TP = np.sum((y_true == 1) & (y_pred == 1))
-        TN = np.sum((y_true == 0) & (y_pred == 0))
-        FP = np.sum((y_true == 0) & (y_pred == 1))
-        FN = np.sum((y_true == 1) & (y_pred == 0))
+        cm = confusion_matrix(y_true, y_pred)
+        TN = cm[0][0]
+        FN = cm[1][0]
+        TP = cm[1][1]
+        FP = cm[0][1]
         return TP, TN, FP, FN

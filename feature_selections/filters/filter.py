@@ -70,6 +70,7 @@ class Filter(FeatureSelection):
                  "Iterations: " + str(self.Gmax) + os.linesep + \
                  "Iterations Performed: " + str(g) + os.linesep + \
                  "Latest Improvement: " + str(last) + os.linesep + \
+                 "Latest Improvement (Ratio): " + str(1 - (last / g)) + os.linesep + \
                  "K-fold cross validation: " + str(self.k) + os.linesep + \
                  "Standardisation: " + str(self.standardisation) + os.linesep + \
                  "Methods List: " + str(methods) + os.linesep + \
@@ -78,6 +79,7 @@ class Filter(FeatureSelection):
                  " TN: " + str(tn) + " FP: " + str(fp) + " FN: " + str(fn) + os.linesep + \
                  "Best Subset: " + str(bestSubset) + os.linesep + \
                  "Number of Features: " + str(len(bestSubset)) + os.linesep + \
+                 "Number of Features (Ratio): " + str(len(bestSubset) / len(self.cols)) + os.linesep + \
                  "Execution Time: " + str(round(t.total_seconds())) + " (" + str(t) + ")" + os.linesep + \
                  "Memory: " + str(psutil.virtual_memory())
         f.write(string)
@@ -232,4 +234,3 @@ class Filter(FeatureSelection):
                 if stop:
                     break
         return score, vector, col, self.model[vector[-1]], pid, self.v_name, G - same, G
-

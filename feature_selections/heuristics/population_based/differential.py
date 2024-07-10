@@ -23,7 +23,7 @@ class Differential(Heuristic):
                          suffix, verbose)
         self.F = F or 1.0
         self.CR = CR or 0.5
-        self.entropy = entropy or 0.02
+        self.entropy = entropy or 0.05
         self.indMax = None
         self.path = os.path.join(self.path, 'differential' + self.suffix)
         createDirectory(path=self.path)
@@ -132,7 +132,7 @@ class Differential(Heuristic):
             if entropy < self.entropy:
                 same1 = 0
                 P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
-                # P[0] = indMax
+                P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
                                   models=self.model, metric=self.metric, standardisation=self.standardisation,
                                   ratio=self.ratio, k=self.k)[0] for ind in P]

@@ -30,7 +30,7 @@ class Tide(Heuristic):
             self.filter_init = False
         else:
             self.filter_init = True
-        self.entropy = entropy or 0.02
+        self.entropy = entropy or 0.05
         self.path = os.path.join(self.path, 'tide' + self.suffix)
         createDirectory(path=self.path)
 
@@ -38,7 +38,7 @@ class Tide(Heuristic):
         debut = time.time()
         X = self.train.drop([self.target], axis=1)
         y = self.train[self.target]
-        sorted_features = mrmr_classif(X=X, y=y, K=X.shape[1], n_jobs=1)
+        sorted_features = mrmr_classif(X=X, y=y, K=X.shape[1])
         score, model, col, vector, G = -np.inf, 0, 0, 0, 0
         while G < self.Gmax:
             k = random.randint(1, self.D)
@@ -182,7 +182,9 @@ class Tide(Heuristic):
                 same1 = 0
                 P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
                 if self.filter_init:
-                    P[0] = r
+                    P[0], P[1] = r, indMax
+                else:
+                    P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
                                   models=self.model, metric=self.metric, standardisation=self.standardisation,
                                   ratio=self.ratio, k=self.k)[0] for ind in P]

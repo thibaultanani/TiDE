@@ -56,8 +56,8 @@ class Heuristic(FeatureSelection):
             bestInd = bestInd.tolist()
         string = "Heuristic: " + name + os.linesep + \
                  "Population: " + str(self.N) + os.linesep + \
-                 "Generation: " + str(self.Gmax) + os.linesep + \
-                 "Generation Performed: " + str(g) + os.linesep + \
+                 "Generations: " + str(self.Gmax) + os.linesep + \
+                 "Generations Performed: " + str(g) + os.linesep + \
                  "Latest Improvement: " + str(last) + os.linesep + \
                  "Latest Improvement (Ratio): " + str(1 - (last/g)) + os.linesep + \
                  "K-fold cross validation: " + str(self.k) + os.linesep + \

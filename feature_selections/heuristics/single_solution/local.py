@@ -20,15 +20,27 @@ class LocalSearch(Heuristic):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
         self.size = size or self.N
-        self.nb = nb or 5
+        self.nb = nb or 1 / self.D
         self.path = os.path.join(self.path, 'local' + self.suffix)
         createDirectory(path=self.path)
 
     @staticmethod
     def diversification(individual, distance, models):
         neighbor = individual.copy()
-        bits_to_flip = random.sample(range(len(individual)), random.randint(0, distance))
-        for chromosome in bits_to_flip:
+        has_changed = False
+        for chromosome in range(len(individual)):
+            if random.random() < distance:
+                if chromosome != len(individual) - 1:
+                    neighbor[chromosome] = int(not neighbor[chromosome])
+                    has_changed = True
+                else:
+                    r = random.randint(0, len(models) - 1)
+                    while r == neighbor[chromosome] and len(models) > 1:
+                        r = random.randint(0, len(models) - 1)
+                    neighbor[chromosome] = r
+                    has_changed = True
+        if not has_changed:
+            chromosome = random.randint(0, len(individual) - 1)
             if chromosome != len(individual) - 1:
                 neighbor[chromosome] = int(not neighbor[chromosome])
             else:
@@ -58,7 +70,7 @@ class LocalSearch(Heuristic):
         return scores, models, inds, cols
 
     def specifics(self, bestInd, g, t, last, out):
-        string = "Disruption (1 to Max): " + str(self.nb) + os.linesep
+        string = "Disruption Rate: " + str(self.nb) + os.linesep
         self.save("Local Search", bestInd, g, t, last, string, out)
 
     def start(self, pid):
@@ -113,15 +125,6 @@ class LocalSearch(Heuristic):
             print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                      time_total=time_debut, g=G, cpt=same2, verbose=self.verbose) + "\n"
-            # If convergence is reached restart
-            # if same1 >= 300:
-            #     same1 = 0
-            #     P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
-            #     # Evaluates population
-            #     scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-            #                       models=self.model, metric=self.metric, standardisation=self.standardisation,
-            #                       ratio=self.ratio, k=self.k)[0] for ind in P]
-            #     bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
                 stop = True

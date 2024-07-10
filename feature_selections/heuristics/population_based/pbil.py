@@ -27,7 +27,7 @@ class Pbil(Heuristic):
         self.LR = LR or 0.1
         self.MP = MP or 0.05
         self.MS = MS or 0.1
-        self.entropy = entropy or 0.02
+        self.entropy = entropy or 0.05
         self.path = os.path.join(self.path, 'pbil' + self.suffix)
         createDirectory(path=self.path)
 

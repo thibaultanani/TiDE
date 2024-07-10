@@ -22,9 +22,12 @@ class Genetic(Heuristic):
                  verbose=None):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
-        self.mutation = mutation or 5
+        if self.D < 10:
+            self.mutation = mutation or 1 / self.D
+        else:
+            self.mutation = mutation or 10 / self.D
         self.elite = elite or int(self.N / 2)
-        self.entropy = entropy or 0.02
+        self.entropy = entropy or 0.05
         self.path = os.path.join(self.path, 'genetic' + self.suffix)
         createDirectory(path=self.path)
 
@@ -38,10 +41,22 @@ class Genetic(Heuristic):
         return [ranks[score] for score in scores]
 
     @staticmethod
-    def mutate(individual, mutations, models):
+    def mutate(individual, mutation, models):
         mutant = individual.copy()
-        bits_to_flip = random.sample(range(len(individual)), random.randint(0, mutations))
-        for chromosome in bits_to_flip:
+        has_changed = False
+        for chromosome in range(len(individual)):
+            if random.random() < mutation:
+                if chromosome != len(individual) - 1:
+                    mutant[chromosome] = int(not mutant[chromosome])
+                    has_changed = True
+                else:
+                    r = random.randint(0, len(models) - 1)
+                    while r == mutant[chromosome] and len(models) > 1:
+                        r = random.randint(0, len(models) - 1)
+                    mutant[chromosome] = r
+                    has_changed = True
+        if not has_changed:
+            chromosome = random.randint(0, len(individual) - 1)
             if chromosome != len(individual) - 1:
                 mutant[chromosome] = int(not mutant[chromosome])
             else:
@@ -120,7 +135,7 @@ class Genetic(Heuristic):
             for i in range(self.N):
                 parents = np.random.choice(list_of_index, 2, p=probas, replace=False)
                 child = self.crossover(parent1=P[parents[0]], parent2=P[parents[1]])
-                child = self.mutate(individual=child, mutations=self.mutation, models=self.model)
+                child = self.mutate(individual=child, mutation=self.mutation, models=self.model)
                 score_ = fitness(train=self.train, test=self.test, columns=self.cols, ind=child, target=self.target,
                                  models=self.model, metric=self.metric, standardisation=self.standardisation,
                                  ratio=self.ratio, k=self.k)[0]
@@ -144,7 +159,7 @@ class Genetic(Heuristic):
             if entropy < self.entropy:
                 same1 = 0
                 P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
-                # P[0] = indMax
+                P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
                                   models=self.model, metric=self.metric, standardisation=self.standardisation,
                                   ratio=self.ratio, k=self.k)[0] for ind in P]

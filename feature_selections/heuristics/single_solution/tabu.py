@@ -22,15 +22,27 @@ class Tabu(Heuristic):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
         self.size = size or self.N
-        self.nb = nb or 5
+        self.nb = nb or 1 / self.D
         self.path = os.path.join(self.path, 'tabu' + self.suffix)
         createDirectory(path=self.path)
 
     @staticmethod
     def diversification(individual, distance, models):
         neighbor = individual.copy()
-        bits_to_flip = random.sample(range(len(individual)), random.randint(0, distance))
-        for chromosome in bits_to_flip:
+        has_changed = False
+        for chromosome in range(len(individual)):
+            if random.random() < distance:
+                if chromosome != len(individual) - 1:
+                    neighbor[chromosome] = int(not neighbor[chromosome])
+                    has_changed = True
+                else:
+                    r = random.randint(0, len(models) - 1)
+                    while r == neighbor[chromosome] and len(models) > 1:
+                        r = random.randint(0, len(models) - 1)
+                    neighbor[chromosome] = r
+                    has_changed = True
+        if not has_changed:
+            chromosome = random.randint(0, len(individual) - 1)
             if chromosome != len(individual) - 1:
                 neighbor[chromosome] = int(not neighbor[chromosome])
             else:
@@ -41,6 +53,13 @@ class Tabu(Heuristic):
         return neighbor
 
     @staticmethod
+    def is_in_tabu(individual, tabuList):
+        for tabu in list(tabuList.queue):
+            if np.all(individual == tabu):
+                return True
+        return False
+
+    @staticmethod
     def insert_tabu(tabuList, individual):
         if not tabuList.full():
             tabuList.put(individual)
@@ -49,23 +68,9 @@ class Tabu(Heuristic):
             tabuList.put(individual)
         return tabuList
 
-    @staticmethod
-    def add_neighborhood(scores, inds, cols):
-        argmax = np.argmax(scores)
-        bestScore = scores[argmax]
-        bestInd = inds[argmax]
-        bestSubset = [cols[i] for i in range(len(cols)) if bestInd[i]]
-        return bestScore, bestSubset, bestInd, argmax
-
-    @staticmethod
-    def remove_neighbor(scores, inds, argmax):
-        scores.pop(argmax)
-        np.delete(inds, argmax)
-        return scores, inds
-
     def specifics(self, bestInd, g, t, last, out):
         string = "Tabu List Size: " + str(self.size) + os.linesep + \
-                 "Disruption (1 to Max): " + str(self.nb) + os.linesep
+                 "Disruption Rate: " + str(self.nb) + os.linesep
         self.save("Tabu Search", bestInd, g, t, last, string, out)
 
     def start(self, pid):
@@ -99,22 +104,17 @@ class Tabu(Heuristic):
         while G < self.Gmax:
             instant = time.time()
             # Neighborhood exploration and evaluation
-            neighborhood = []
             for i in range(self.N):
                 # Neighbor calculation
                 neighbor = self.diversification(individual=bestInd, distance=self.nb, models=self.model)
-                neighborhood.append(neighbor)
-            # Evaluate the neighborhood
-            scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                              models=self.model, metric=self.metric, standardisation=self.standardisation,
-                              ratio=self.ratio, k=self.k)[0] for ind in neighborhood]
-            bestScore, bestSubset, bestInd, argmax =\
-                self.add_neighborhood(scores=scores, inds=np.asarray(neighborhood), cols=self.cols)
-            while np.any(np.all(bestInd == list(tabuList.queue), axis=1)):
-                scores, neighborhood = self.remove_neighbor(scores=scores, inds=neighborhood, argmax=argmax)
-                bestScore, bestSubset, bestInd, argmax = \
-                    self.add_neighborhood(scores=scores, inds=np.asarray(neighborhood), cols=self.cols)
-            tabuList = self.insert_tabu(tabuList=tabuList, individual=bestInd)
+                if not self.is_in_tabu(neighbor, tabuList):
+                    score = fitness(train=self.train, test=self.test, columns=self.cols, ind=neighbor,
+                                    target=self.target, models=self.model, metric=self.metric,
+                                    standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+                    if bestScore <= score:
+                        bestScore, bestSubset, bestInd =\
+                            score, [self.cols[i] for i in range(self.D) if bestInd[i]], neighbor
+                        tabuList = self.insert_tabu(tabuList=tabuList, individual=bestInd)
             G = G + 1
             same1, same2 = same1 + 1, same2 + 1
             mean_scores = float(np.mean(scores))
@@ -127,17 +127,6 @@ class Tabu(Heuristic):
             print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                      time_total=time_debut, g=G, cpt=same2, verbose=self.verbose) + "\n"
-            # If convergence is reached restart
-            # if same1 >= 300:
-            #     same1 = 0
-            #     P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
-            #     # Evaluates population
-            #     scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-            #                       models=self.model, metric=self.metric, standardisation=self.standardisation,
-            #                       ratio=self.ratio, k=self.k)[0] for ind in P]
-            #     bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-            #     tabuList = Queue(maxsize=self.size)
-            #     tabuList = self.insert_tabu(tabuList=tabuList, individual=bestInd)
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
                 stop = True

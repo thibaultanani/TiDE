@@ -104,6 +104,7 @@ class Tabu(Heuristic):
         while G < self.Gmax:
             instant = time.time()
             # Neighborhood exploration and evaluation
+            bestScore = 0
             for i in range(self.N):
                 # Neighbor calculation
                 neighbor = self.diversification(individual=bestInd, distance=self.nb, models=self.model)

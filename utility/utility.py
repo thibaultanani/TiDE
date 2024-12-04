@@ -50,22 +50,12 @@ def create_population(inds, size):
     return pop.astype(bool)
 
 
-def create_population_models(inds, size, models):
-    pop = np.random.rand(inds, size) < np.random.rand(inds, 1)
-    pop = pop[:, np.argsort(-np.random.rand(size), axis=0)]
-    pop = pop.astype(int)
-    for i in range(inds):
-        pop[i, -1] = np.random.randint(0, len(models))
-    return pop
-
-
-def fitness(train, test, columns, ind, target, models, metric, standardisation, ratio, k=None):
+def fitness(train, test, columns, ind, target, model, metric, standardisation, ratio, k=None):
     if not any(ind[:-1]):
-        ind[random.randint(0, len(ind) - 2)] = 1
+        ind[random.randint(0, len(ind) - 1)] = 1
     subset = [columns[c] for c in range(len(columns)) if ind[c]]
     train = train[subset + [target]]
     X_train, y_train = train.drop(columns=[target]), train[target]
-    model = models[ind[-1]]
     if test is None and k is not None:
         skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
         scores = []
@@ -99,6 +89,24 @@ def fitness(train, test, columns, ind, target, models, metric, standardisation, 
         return score, y_test, y_pred
 
 
+def random_int_power(n, power=2):
+    p = np.array([1 / (i ** power) for i in range(1, n + 1)])
+    p = p / p.sum()
+    return np.random.choice(range(1, n + 1), p=p)
+
+
+def diversification(individual, distance):
+    neighbor = individual.copy()
+    size = len(neighbor)
+    if distance >= 0:
+        num_moves = random.randint(1, distance)
+    else:
+        num_moves = random_int_power(n=size, power=2)
+    move_indices = random.sample(range(size), num_moves)
+    for idx in move_indices:
+        neighbor[idx] = 1 - neighbor[idx]
+    return neighbor
+
 
 def get_entropy(pop):
     H = []
@@ -124,33 +132,6 @@ def get_entropy(pop):
         # Append the result to the list
         H.append(entropy)
     return sum(H) / len(H)
-
-
-def get_entropy2(pop):
-    H, ratio = [], []
-    # Loop over the columns
-    for i in range(len(pop[0]) - 1):
-        # Initialize variables to store the counts of True and False values
-        true_count = 0
-        false_count = 0
-        # Loop over the rows and count the number of True and False values in the current column
-        for row in pop:
-            if row[i]:
-                true_count += 1
-            else:
-                false_count += 1
-        # Calculate the probabilities of True and False values
-        p_true = true_count / (true_count + false_count)
-        p_false = false_count / (true_count + false_count)
-        # Calculate the Shannon's entropy for the current column
-        if p_true == 0 or p_false == 0:
-            entropy = 0
-        else:
-            entropy = -(p_true * math.log2(p_true) + p_false * math.log2(p_false))
-        # Append the result to the list
-        H.append(entropy)
-        ratio.append(p_true)
-    return sum(H) / len(H), ratio
 
 
 def add(scores, inds, cols):

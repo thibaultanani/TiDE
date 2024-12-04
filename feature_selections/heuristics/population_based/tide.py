@@ -2,11 +2,13 @@ import os
 import random
 import time
 import numpy as np
+from scipy.stats import beta
+from sklearn.feature_selection import f_classif
 
+from feature_selections.filters import Filter
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
-from mrmr import mrmr_classif
-from utility.utility import createDirectory, add, get_entropy, create_population_models, fitness
+from utility.utility import createDirectory, add, get_entropy, create_population, fitness
 
 
 class Tide(Heuristic):
@@ -14,18 +16,16 @@ class Tide(Heuristic):
     Class that implements the new heuristic: tournament in differential evolution
 
     Args:
-        alpha (float)     : The minimum threshold for the percentage of individuals to be selected by tournament
-        Tmax_filter (int) : Total number of seconds allocated for searching best features subset with filter method
-        filter_init (bool): The choice of using a filter method for initialisation
-        entropy (float)   : Minimum threshold of diversity in the population to be reached before a reset
+        gamma (float)       : The minimum threshold for the percentage of individuals to be selected by tournament
+        filter_init (bool)  : The choice of using anova method for initialisation
+        entropy (float)     : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, model, train, test=None, drops=None, metric=None, Tmax=None, ratio=None,
-                 N=None, Gmax=None, alpha=None, Tmax_filter=None, filter_init=None, entropy=None, suffix=None,
-                 k=None, standardisation=None, verbose=None):
+                 N=None, Gmax=None, gamma=None, filter_init=None, entropy=None, suffix=None, k=None,
+                 standardisation=None, verbose=None):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
-        self.alpha = alpha or 0.9
-        self.Tmax_filter = Tmax_filter or Tmax / 10
+        self.gamma = gamma or 0.9
         if filter_init is False:
             self.filter_init = False
         else:
@@ -34,42 +34,55 @@ class Tide(Heuristic):
         self.path = os.path.join(self.path, 'tide' + self.suffix)
         createDirectory(path=self.path)
 
-    def mrmr_init(self):
+    def anova_init(self):
         debut = time.time()
         X = self.train.drop([self.target], axis=1)
         y = self.train[self.target]
-        sorted_features = mrmr_classif(X=X, y=y, K=X.shape[1])
+        f_values, _ = f_classif(X, y)
+        f_results = list(zip(X.columns, f_values))
+        f_results.sort(key=lambda x: x[1], reverse=True)
+        sorted_features = [feature for feature, _ in f_results]
         score, model, col, vector, G = -np.inf, 0, 0, 0, 0
+        k = [val for val in range(1, 101)]
+        num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in k]
+        num_features = [val for val in num_features if val >= 1]
+        num_features = list(dict.fromkeys(num_features))
         while G < self.Gmax:
-            k = random.randint(1, self.D)
-            top_k_features = sorted_features[:k]
+            top_k_features = sorted_features[:num_features[G]]
             G = G + 1
             v = [0] * self.D
             for var in top_k_features:
                 v[self.cols.get_loc(var)] = 1
-            v.append(random.choice(range(len(self.model))))
-            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v, target=self.target,
-                        models=self.model, metric=self.metric, standardisation=self.standardisation,
-                        ratio=self.ratio, k=self.k)[0]
+            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v,
+                        target=self.target, model=self.model, metric=self.metric,
+                        standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
             if s > score:
                 score, vector = s, v
-                col = [self.cols[i] for i in range(len(self.cols)) if v[i]]
-            if time.time() - debut >= self.Tmax_filter:
+            if time.time() - debut >= self.Tmax or G == len(num_features):
                 break
-        if self.verbose:
-            print("filter:", score, len(col), self.model[vector[-1]].__class__.__name__)
         return vector
 
+    def create_population_filter(self):
+        _, filter_scores = Filter.surf_selection(df=self.train, target=self.target)
+        scores = [0] * self.D
+        for score in filter_scores:
+            scores[self.cols.get_loc(score[0])] = score[1]
+        min_scores, max_scores = min(scores), max(scores)
+        normalised_scores = [(value - min_scores) / (max_scores - min_scores) for value in scores]
+        interpolated_scores = [0.1 + 0.8 * score for score in normalised_scores]
+        pop = np.zeros((self.N, self.D), dtype=bool)
+        for i in range(self.N):
+            for j in range(len(pop[i])):
+                if random.random() < interpolated_scores[j]:
+                    pop[i][j] = True
+                else:
+                    pop[i][j] = False
+        return pop
+
     @staticmethod
-    def mutate(P, n_ind, current, selected):
-        list_of_index = [i for i in range(len(P))]
-        r = np.random.choice(list_of_index, 2, replace=False)
-        while current in r:
-            r = np.random.choice(list_of_index, 2, replace=False)
-        selected = [selected, r[0], r[1]]
-        Xr1 = P[selected[0]]
-        Xr2 = P[selected[1]]
-        Xr3 = P[selected[2]]
+    def mutate(P, n_ind, current, tbest):
+        selected = np.random.choice([i for i in range(len(P)) if i != current and i != tbest], 2, replace=False)
+        Xr1, Xr2, Xr3 = P[tbest], P[selected[0]], P[selected[1]]
         mutant = []
         for chromosome in range(n_ind):
             if Xr2[chromosome] == Xr3[chromosome]:
@@ -87,25 +100,21 @@ class Tide(Heuristic):
         return child
 
     @staticmethod
-    def tournament(scores, entropy, alpha):
-        p = (1 - entropy) * (1 - alpha) + alpha
-        nb_scores = int(scores.__len__() * p)
+    def tournament(scores, entropy, gamma):
+        p = (1 - entropy) * (1 - gamma) + gamma
+        nb_scores = max(2, int(len(scores) * p))
         selected = random.choices(scores, k=nb_scores)
-        if len(selected) < 2:
-            selected = random.choices(scores, k=2)
         score_max = np.amax(selected)
-        for i, score in enumerate(scores):
-            if score == score_max:
-                return i
+        return scores.index(score_max)
 
     def specifics(self, bestInd, g, t, last, out):
         if self.filter_init:
             string = "k: " + str(self.k)
-            name = "Tournament In Differential Evolution + MRMR"
+            name = "Tournament In Differential Evolution + ANOVA"
         else:
             string = "k: No filter initialization"
             name = "Tournament In Differential Evolution"
-        string = string + os.linesep + "Alpha: " + str(self.alpha) + os.linesep
+        string = string + os.linesep + "Gamma: " + str(self.gamma) + os.linesep
         self.save(name, bestInd, g, t, last, string, out)
 
     def start(self, pid):
@@ -120,14 +129,14 @@ class Tide(Heuristic):
         # Generation (G) initialisation
         G, same1, same2, stop = 0, 0, 0, False
         # Population P initialisation
-        P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+        P = create_population(inds=self.N, size=self.D)
         r = None
         if self.filter_init:
-            r = self.mrmr_init()
+            r = self.anova_init()
             P[0] = r
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          models=self.model, metric=self.metric, standardisation=self.standardisation,
+                          model=self.model, metric=self.metric, standardisation=self.standardisation,
                           ratio=self.ratio, k=self.k)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
@@ -146,18 +155,19 @@ class Tide(Heuristic):
             # Mutant population creation and evaluation
             for i in range(self.N):
                 # Calculate the rank for each individual
-                selected = self.tournament(scores=scores, entropy=entropy, alpha=self.alpha)
+                tbest = self.tournament(scores=scores, entropy=entropy, gamma=self.gamma)
                 # Mutant calculation Vi
-                Vi = self.mutate(P=P, n_ind=self.D + 1, current=i, selected=selected)
+                Vi = self.mutate(P=P, n_ind=self.D, current=i, tbest=tbest)
                 # Child vector calculation Ui
-                CR = random.uniform(0.3, 0.7)
-                Ui = self.crossover(n_ind=self.D + 1, ind=P[i], mutant=Vi, cross_proba=CR)
+                alpha, beta_param = (2 - scores[i]) * 2, (1 + scores[i]) * 2
+                CR = beta.rvs(alpha, beta_param)
+                Ui = self.crossover(n_ind=self.D, ind=P[i], mutant=Vi, cross_proba=CR)
                 # Evaluation of the trial vector
                 if all(x == y for x, y in zip(P[i], Ui)):
                     score_ = scores[i]
                 else:
                     score_ = fitness(train=self.train, test=self.test, columns=self.cols, ind=Ui, target=self.target,
-                                     models=self.model, metric=self.metric, standardisation=self.standardisation,
+                                     model=self.model, metric=self.metric, standardisation=self.standardisation,
                                      ratio=self.ratio, k=self.k)[0]
                 # Comparison between Xi and Ui
                 if scores[i] <= score_:
@@ -180,15 +190,16 @@ class Tide(Heuristic):
             # If diversity is too low restart
             if entropy < self.entropy:
                 same1 = 0
-                P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+                P = create_population(inds=self.N, size=self.D)
                 if self.filter_init:
                     P[0], P[1] = r, indMax
                 else:
                     P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                                  models=self.model, metric=self.metric, standardisation=self.standardisation,
+                                  model=self.model, metric=self.metric, standardisation=self.standardisation,
                                   ratio=self.ratio, k=self.k)[0] for ind in P]
-                bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
+                bestScore, bestSubset, bestInd = add(scores=scores[:self.N], inds=np.asarray(P[:self.N]),
+                                                     cols=self.cols)
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
                 stop = True
@@ -199,4 +210,4 @@ class Tide(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G

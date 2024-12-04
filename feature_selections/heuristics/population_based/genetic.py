@@ -5,7 +5,7 @@ import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
-from utility.utility import createDirectory, add, get_entropy, create_population_models, fitness
+from utility.utility import createDirectory, add, get_entropy, create_population, fitness, random_int_power
 
 
 class Genetic(Heuristic):
@@ -13,20 +13,15 @@ class Genetic(Heuristic):
     Class that implements the genetic algorithm heuristic.
 
     Args:
-        mutation (float): Maximum number of mutations for each child
-        elite (float)   : Number of individuals to keep before creating children
+        mutation (int): Maximum number of mutations for each child
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, train, test, model, drops=None, metric=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, mutation=None, elite=None, entropy=None, suffix=None, k=None, standardisation=None,
+                 Gmax=None, mutation=None, entropy=None, suffix=None, k=None, standardisation=None,
                  verbose=None):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
-        if self.D < 10:
-            self.mutation = mutation or 1 / self.D
-        else:
-            self.mutation = mutation or 10 / self.D
-        self.elite = elite or int(self.N / 2)
+        self.mutation = mutation or -1
         self.entropy = entropy or 0.05
         self.path = os.path.join(self.path, 'genetic' + self.suffix)
         createDirectory(path=self.path)
@@ -40,31 +35,19 @@ class Genetic(Heuristic):
                 ranks[score] = rank
         return [ranks[score] for score in scores]
 
+    def rank_selection(self, population, scores, n_select):
+        ranks = self.get_ranks(scores)
+        total_rank = sum(ranks)
+        probabilities = [rank / total_rank for rank in ranks]
+        selected_indices = np.random.choice(len(population), n_select, p=probabilities, replace=False)
+        return [population[i] for i in selected_indices], [scores[i] for i in selected_indices]
+
     @staticmethod
-    def mutate(individual, mutation, models):
-        mutant = individual.copy()
-        has_changed = False
-        for chromosome in range(len(individual)):
-            if random.random() < mutation:
-                if chromosome != len(individual) - 1:
-                    mutant[chromosome] = int(not mutant[chromosome])
-                    has_changed = True
-                else:
-                    r = random.randint(0, len(models) - 1)
-                    while r == mutant[chromosome] and len(models) > 1:
-                        r = random.randint(0, len(models) - 1)
-                    mutant[chromosome] = r
-                    has_changed = True
-        if not has_changed:
-            chromosome = random.randint(0, len(individual) - 1)
-            if chromosome != len(individual) - 1:
-                mutant[chromosome] = int(not mutant[chromosome])
-            else:
-                r = random.randint(0, len(models) - 1)
-                while r == mutant[chromosome] and len(models) > 1:
-                    r = random.randint(0, len(models) - 1)
-                mutant[chromosome] = r
-        return mutant
+    def roulette_selection(population, scores):
+        total_score = sum(scores)
+        probabilities = [score / total_score for score in scores]
+        selected_indices = np.random.choice(len(population), 2, p=probabilities, replace=False)
+        return population[selected_indices[0]], population[selected_indices[1]]
 
     @staticmethod
     def crossover(parent1, parent2):
@@ -78,6 +61,19 @@ class Genetic(Heuristic):
         point2 = random.randint(point1, len(p1) - 1)
         child = p1[:point1] + p2[point1:point2] + p1[point2:]
         return child
+
+    @staticmethod
+    def mutate(individual, mutation):
+        mutant = individual.copy()
+        size = len(mutant)
+        if mutation >= 0:
+            num_moves = random.randint(0, mutation)
+        else:
+            num_moves = random_int_power(n=size + 1, power=2) - 1
+        move_indices = random.sample(range(size), num_moves)
+        for idx in move_indices:
+            mutant[idx] = 1 - mutant[idx]
+        return mutant
 
     @staticmethod
     def print_(print_out, pid, maxi, best, mean, worst, feats, time_exe, time_total, entropy, g, cpt):
@@ -104,10 +100,10 @@ class Genetic(Heuristic):
         # Generation (G) initialisation
         G, same1, same2, stop = 0, 0, 0, False
         # Population P initialisation
-        P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+        P = create_population(inds=self.N, size=self.D)
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          models=self.model, metric=self.metric, standardisation=self.standardisation,
+                          model=self.model, metric=self.metric, standardisation=self.standardisation,
                           ratio=self.ratio, k=self.k)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
@@ -123,23 +119,17 @@ class Genetic(Heuristic):
         # Main process iteration (generation iteration)
         while G < self.Gmax:
             instant = time.time()
-            # Keeping only elite size of the population for the next generation
-            indexes = np.argsort(scores)[::-1][:self.elite]
-            scores = [scores[i] for i in indexes]
-            P = [P[i] for i in indexes]
-            # Calculate the rank for each individual
-            ranks = self.get_ranks(scores=scores)
-            probas = [n / sum(ranks) for n in ranks]
-            list_of_index = [i for i in range(0, len(probas))]
+            # Selection of individuals for the next generation by rank
+            P, scores = self.rank_selection(population=P, scores=scores, n_select=self.N)
             # Children population
-            for i in range(self.N):
-                parents = np.random.choice(list_of_index, 2, p=probas, replace=False)
-                child = self.crossover(parent1=P[parents[0]], parent2=P[parents[1]])
-                child = self.mutate(individual=child, mutation=self.mutation, models=self.model)
-                score_ = fitness(train=self.train, test=self.test, columns=self.cols, ind=child, target=self.target,
-                                 models=self.model, metric=self.metric, standardisation=self.standardisation,
-                                 ratio=self.ratio, k=self.k)[0]
-                scores.append(score_)
+            for _ in range(self.N):
+                parent1, parent2 = self.roulette_selection(population=P, scores=scores)
+                child = self.crossover(parent1, parent2)
+                child = self.mutate(individual=child, mutation=self.mutation)
+                child_score = fitness(train=self.train, test=self.test, columns=self.cols, ind=child,
+                                      target=self.target, model=self.model, metric=self.metric,
+                                      standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+                scores.append(child_score)
                 P.append(np.asarray(child))
             bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
             G = G + 1
@@ -158,10 +148,10 @@ class Genetic(Heuristic):
             # If diversity is too low restart
             if entropy < self.entropy:
                 same1 = 0
-                P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+                P = create_population(inds=self.N, size=self.D)
                 P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                                  models=self.model, metric=self.metric, standardisation=self.standardisation,
+                                  model=self.model, metric=self.metric, standardisation=self.standardisation,
                                   ratio=self.ratio, k=self.k)[0] for ind in P]
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
@@ -173,4 +163,4 @@ class Genetic(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G

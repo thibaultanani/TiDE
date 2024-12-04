@@ -46,14 +46,12 @@ class Heuristic(FeatureSelection):
     def save(self, name, bestInd, g, t, last, specifics, out):
         a = os.path.join(os.path.join(self.path, 'results.txt'))
         f = open(a, "w")
-        methods = [self.model[m].__class__.__name__ for m in range(len(self.model))]
+        method = self.model.__class__.__name__
         bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
         score_train, y_true, y_pred = fitness(train=self.train, test=self.test, columns=self.cols, ind=bestInd,
-                                              target=self.target, models=self.model, metric=self.metric,
+                                              target=self.target, model=self.model, metric=self.metric,
                                               standardisation=self.standardisation, ratio=0, k=self.k)
         tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
-        if isinstance(bestInd, np.ndarray):
-            bestInd = bestInd.tolist()
         string = "Heuristic: " + name + os.linesep + \
                  "Population: " + str(self.N) + os.linesep + \
                  "Generations: " + str(self.Gmax) + os.linesep + \
@@ -63,8 +61,7 @@ class Heuristic(FeatureSelection):
                  "K-fold cross validation: " + str(self.k) + os.linesep + \
                  "Standardisation: " + str(self.standardisation) + os.linesep + \
                  specifics + \
-                 "Methods List: " + str(methods) + os.linesep + \
-                 "Best Method: " + str(self.model[bestInd[-1]].__class__.__name__)+ os.linesep + \
+                 "Method: " + str(method) + os.linesep + \
                  "Best Score: " + str(score_train) + os.linesep + "TP: " + str(tp) + \
                  " TN: " + str(tn) + " FP: " + str(fp) + " FN: " + str(fn) + os.linesep + \
                  "Best Subset: " + str(bestSubset) + os.linesep + \

@@ -1,15 +1,12 @@
 import os
-import random
 import time
 from datetime import timedelta
 
 import numpy as np
 import psutil
-from mrmr import mrmr_classif
-from scipy.stats import spearmanr
-from sklearn.ensemble import RandomForestClassifier
+from scipy.stats import pearsonr
 from sklearn.feature_selection import f_classif, mutual_info_classif
-from skrebate import ReliefF, SURF, MultiSURF, TuRF
+from skrebate import SURF
 
 from feature_selections import FeatureSelection
 from utility import createDirectory, fitness
@@ -21,9 +18,10 @@ class Filter(FeatureSelection):
 
     Args:
         method (str)  : Filter method to use for feature selection
+        quantitative (bool) : If the target feature is quantitative or not (only for mrmr)
     """
     def __init__(self, name, target, model, train, test=None, k=None, standardisation=None, drops=None, metric=None,
-                 Gmax=None, Tmax=None, ratio=None, suffix=None, verbose=None, method=None):
+                 Gmax=None, quantitative=None, Tmax=None, ratio=None, suffix=None, verbose=None, method=None):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, Gmax, Tmax, ratio, suffix,
                          verbose)
         if method is None or method == "Correlation":
@@ -34,19 +32,11 @@ class Filter(FeatureSelection):
             self.method, self.func, self.v_name = "Mutual Information", self.mutual_info_selection, "MI  "
         elif method == "MRMR":
             self.method, self.func, self.v_name = "MRMR", self.mrmr_selection, "MRMR"
-        elif method == "ReliefF":
-            self.method, self.func, self.v_name = "ReliefF", self.relieff_selection, "RELI"
         elif method == "SURF":
             self.method, self.func, self.v_name = "SURF", self.surf_selection, "SURF"
-        elif method == "MultiSURF":
-            self.method, self.func, self.v_name = "MultiSURF", self.multisurf_selection, "MS  "
-        elif method == "TURF":
-            self.method, self.func, self.v_name = "TURF", self.turf_selection, "TURF"
-        elif method == "RandomForest":
-            self.method, self.func, self.v_name = "RandomForest", self.random_forest_selection, "RF  "
+        self.quantitative = quantitative or None
         self.path = os.path.join(self.path, str.lower(self.method) + self.suffix)
         createDirectory(path=self.path)
-
 
     @staticmethod
     def print_(print_out, name, pid, maxi, best, mean, feats, time_exe, time_total, g, cpt, verbose):
@@ -57,13 +47,12 @@ class Filter(FeatureSelection):
         if verbose: print(display)
         return print_out
 
-    def save(self, name, bestInd, g, t, last, out):
+    def save(self, name, bestInd, scores, g, t, last, out):
         a = os.path.join(os.path.join(self.path, 'results.txt'))
         f = open(a, "w")
-        methods = [self.model[m].__class__.__name__ for m in range(len(self.model))]
         bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
         score_train, y_true, y_pred = fitness(train=self.train, test=self.test, columns=self.cols, ind=bestInd,
-                                              target=self.target, models=self.model, metric=self.metric,
+                                              target=self.target, model=self.model, metric=self.metric,
                                               standardisation=self.standardisation, ratio=0, k=self.k)
         tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
         string = "Filter: " + str(name) + os.linesep + \
@@ -73,13 +62,13 @@ class Filter(FeatureSelection):
                  "Latest Improvement (Ratio): " + str(1 - (last / g)) + os.linesep + \
                  "K-fold cross validation: " + str(self.k) + os.linesep + \
                  "Standardisation: " + str(self.standardisation) + os.linesep + \
-                 "Methods List: " + str(methods) + os.linesep + \
-                 "Best Method: " + str(self.model[bestInd[-1]].__class__.__name__) + os.linesep + \
+                 "Method: " + str(self.model.__class__.__name__) + os.linesep + \
                  "Best Score: " + str(score_train) + os.linesep + "TP: " + str(tp) + \
                  " TN: " + str(tn) + " FP: " + str(fp) + " FN: " + str(fn) + os.linesep + \
                  "Best Subset: " + str(bestSubset) + os.linesep + \
                  "Number of Features: " + str(len(bestSubset)) + os.linesep + \
                  "Number of Features (Ratio): " + str(len(bestSubset) / len(self.cols)) + os.linesep + \
+                 "Score of Features: " + str(scores) + os.linesep + \
                  "Execution Time: " + str(round(t.total_seconds())) + " (" + str(t) + ")" + os.linesep + \
                  "Memory: " + str(psutil.virtual_memory())
         f.write(string)
@@ -93,11 +82,11 @@ class Filter(FeatureSelection):
         corr_results = []
         for column in df.columns:
             if column != target:
-                coef, _ = spearmanr(df[column], df[target].values)
+                coef, _ = pearsonr(df[column], df[target].values)
                 corr_results.append((column, coef))
         corr_results.sort(key=lambda x: x[1], reverse=True)
         sorted_features = [feature for feature, _ in corr_results]
-        return sorted_features
+        return sorted_features, corr_results
 
     @staticmethod
     def anova_selection(df, target):
@@ -107,85 +96,66 @@ class Filter(FeatureSelection):
         f_results = list(zip(X.columns, f_values))
         f_results.sort(key=lambda x: x[1], reverse=True)
         sorted_features = [feature for feature, _ in f_results]
-        return sorted_features
+        return sorted_features, f_results
 
     @staticmethod
     def mutual_info_selection(df, target):
         X = df.drop([target], axis=1)
         y = df[target]
-        mi_scores = mutual_info_classif(X, y, discrete_features='auto', random_state=42)
+        mi_scores = mutual_info_classif(X, y, discrete_features=True, random_state=42)
         mi_results = list(zip(X.columns, mi_scores))
         mi_results.sort(key=lambda x: x[1], reverse=True)
         sorted_features = [feature for feature, _ in mi_results]
-        return sorted_features
+        return sorted_features, mi_results
 
     @staticmethod
-    def mrmr_selection(df, target):
+    def mrmr_selection(df, target, is_quantitative=False):
         X = df.drop([target], axis=1)
         y = df[target]
-        sorted_features = mrmr_classif(X=X, y=y, K=X.shape[1])
-        return sorted_features
-
-    @staticmethod
-    def relieff_selection(df, target):
-        X = df.drop([target], axis=1).values.astype('float64')
-        y = df[target].values
-        relief = ReliefF(n_neighbors=100, n_features_to_select=X.shape[1])
-        relief.fit(X, y)
-        rel_scores = relief.feature_importances_
-        rel_results = list(zip(df.columns, rel_scores))
-        rel_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in rel_results]
-        return sorted_features
+        if is_quantitative:
+            relevance, pearson_values = {}, []
+            for column in X.columns:
+                coef, _ = pearsonr(X[column], y)
+                pearson_values.append(coef)
+                relevance[column] = coef
+            min_relevance, max_relevance = min(pearson_values), max(pearson_values)
+            relevance = {column: (value - min_relevance) / (max_relevance - min_relevance)
+                         for column, value in relevance.items()}
+        else:
+            f_values, _ = f_classif(X, y)
+            # relevance = {column: f_value for column, f_value in zip(X.columns, f_values)}
+            min_f_value, max_f_value = min(f_values), max(f_values)
+            relevance = {column: (f_value - min_f_value) / (max_f_value - min_f_value)
+                         for column, f_value in zip(X.columns, f_values)}
+        correlation_matrix = X.corr()
+        min_corr, max_corr = correlation_matrix.min().min(), correlation_matrix.max().max()
+        normalised_corr_matrix = (correlation_matrix - min_corr) / (max_corr - min_corr)
+        S, R, mrmr_scores_list = [], list(X.columns), {}
+        first_feature = max(relevance, key=relevance.get)
+        S.append(first_feature), R.remove(first_feature)
+        mrmr_scores_list[first_feature] = relevance[first_feature]
+        while R:
+            mrmr_scores = {}
+            for feature in R:
+                redundancy = normalised_corr_matrix.loc[feature, S].mean()
+                mrmr_scores[feature] = relevance[feature] - redundancy
+            next_feature = max(mrmr_scores, key=mrmr_scores.get)
+            S.append(next_feature)
+            R.remove(next_feature)
+            mrmr_scores_list[next_feature] = mrmr_scores[next_feature]
+        return S, mrmr_scores_list
 
     @staticmethod
     def surf_selection(df, target):
         X = df.drop([target], axis=1).values.astype('float64')
         y = df[target].values
-        surf = SURF(n_features_to_select=X.shape[1])
+        surf = SURF(n_features_to_select=X.shape[1], discrete_threshold=2, n_jobs=-1)
         surf.fit(X, y)
         surf_scores = surf.feature_importances_
         surf_results = list(zip(df.columns, surf_scores))
         surf_results.sort(key=lambda x: x[1], reverse=True)
         sorted_features = [feature for feature, _ in surf_results]
-        return sorted_features
-
-    @staticmethod
-    def multisurf_selection(df, target):
-        X = df.drop([target], axis=1).values.astype('float64')
-        y = df[target].values
-        multisurf = MultiSURF(n_features_to_select=X.shape[1])
-        multisurf.fit(X, y)
-        multi_scores = multisurf.feature_importances_
-        multi_results = list(zip(df.columns, multi_scores))
-        multi_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in multi_results]
-        return sorted_features
-
-    @staticmethod
-    def turf_selection(df, target):
-        headers = list(df.drop([target], axis=1))
-        X = df.drop([target], axis=1).values.astype('float64')
-        y = df[target].values
-        turf = TuRF(core_algorithm="ReliefF", n_features_to_select=X.shape[1])
-        turf.fit(X, y, headers=headers)
-        turf_scores = turf.feature_importances_
-        turf_results = list(zip(df.columns, turf_scores))
-        turf_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in turf_results]
-        return sorted_features
-
-    @staticmethod
-    def random_forest_selection(df, target):
-        X = df.drop([target], axis=1)
-        y = df[target]
-        rf = RandomForestClassifier(n_estimators=1000, random_state=42)
-        rf.fit(X, y)
-        rf_scores = rf.feature_importances_
-        rf_results = list(zip(X.columns, rf_scores))
-        rf_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in rf_results]
-        return sorted_features
+        return sorted_features, surf_results
 
     def start(self, pid):
         debut = time.time()
@@ -195,7 +165,11 @@ class Filter(FeatureSelection):
         np.random.seed(None)
         score, model, col, vector, s = -np.inf, [], [], [], -np.inf
         G, same, stop = 0, 0, False
-        sorted_features = self.func(df=self.train, target=self.target)
+        try:
+            sorted_features, filter_scores = self.func(df=self.train, target=self.target)
+        except TypeError:
+            sorted_features, filter_scores = self.func(df=self.train, target=self.target,
+                                                       is_quantitative=self.quantitative)
         k = [val for val in range(1, 101)]
         num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in k]
         num_features = [val for val in num_features if val >= 1]
@@ -208,16 +182,13 @@ class Filter(FeatureSelection):
             v = [0] * self.D
             for var in top_k_features:
                 v[self.cols.get_loc(var)] = 1
-            for model_index in range(len(self.model)):
-                v_with_model = v.copy()
-                v_with_model.append(model_index)
-                s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v_with_model,
-                            target=self.target, models=self.model, metric=self.metric,
-                            standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
-                if s > score:
-                    same = 0
-                    score, vector = s, v_with_model
-                    col = [self.cols[i] for i in range(len(self.cols)) if v_with_model[i]]
+            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v,
+                        target=self.target, model=self.model, metric=self.metric,
+                        standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+            if s > score:
+                same = 0
+                score, vector = s, v
+                col = [self.cols[i] for i in range(len(self.cols)) if v[i]]
             time_instant = timedelta(seconds=(time.time() - instant))
             time_debut = timedelta(seconds=(time.time() - debut))
             print_out = self.print_(print_out=print_out, name=self.v_name, pid=pid, maxi=score, best=s, mean=s,
@@ -228,9 +199,9 @@ class Filter(FeatureSelection):
                 stop = True
             # Write important information to file
             if G % 10 == 0 or G == self.Gmax or stop:
-                self.save(name=self.method, bestInd=vector, g=G, t=timedelta(seconds=(time.time() - debut)),
-                          last=G - same, out=print_out)
+                self.save(name=self.method, bestInd=vector, scores=filter_scores, g=G,
+                          t=timedelta(seconds=(time.time() - debut)), last=G - same, out=print_out)
                 print_out = ""
                 if stop:
                     break
-        return score, vector, col, self.model[vector[-1]], pid, self.v_name, G - same, G
+        return score, vector, col, self.model, pid, self.v_name, G - same, G

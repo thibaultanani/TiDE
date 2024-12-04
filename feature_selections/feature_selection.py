@@ -12,7 +12,7 @@ class FeatureSelection:
     Args:
         name (str): Results folder name
         target (str): Target feature name
-        model (list): List of sklearn learning method objects
+        model (object): sklearn learning method object
         train (pd.DataFrame): Training data
         test (pd.DataFrame, None): Testing data
         k (int): Number of folds for validation if no test data is provided

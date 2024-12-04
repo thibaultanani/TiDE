@@ -25,7 +25,7 @@ class Random(Heuristic):
         self.save("Random Generation", bestInd, g, t, last, "", out)
 
     @staticmethod
-    def create_population_models(inds, size, models):
+    def create_population(inds, size):
         # Initialise the population
         pop = np.zeros((inds, size), dtype=bool)
         for i in range(inds):
@@ -33,8 +33,6 @@ class Random(Heuristic):
             true_indices = np.random.choice(size - 1, size=num_true, replace=False)
             pop[i, true_indices] = True
         pop = pop.astype(int)
-        # Replace last element with random integer between 0 and models-1
-        pop[:, -1] = np.random.randint(0, len(models), size=inds)
         return pop
 
     def start(self, pid):
@@ -49,10 +47,10 @@ class Random(Heuristic):
         # Generation (G) initialisation
         G, same, stop = 0, 0, False
         # Population P initialisation
-        P = self.create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+        P = self.create_population(inds=self.N, size=self.D)
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          models=self.model, metric=self.metric, standardisation=self.standardisation,
+                          model=self.model, metric=self.metric, standardisation=self.standardisation,
                           ratio=self.ratio, k=self.k)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
@@ -63,15 +61,14 @@ class Random(Heuristic):
         print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
                                  mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                  time_total=time_debut, g=G, cpt=0, verbose=self.verbose) + "\n"
-        scoreMax, subsetMax = bestScore, bestSubset
         # Main process iteration (generation iteration)
         while G < self.Gmax:
             instant = time.time()
             # Neighborhood exploration and evaluation
-            neighborhood = self.create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+            neighborhood = self.create_population(inds=self.N, size=self.D)
             # Evaluate the neighborhood
             scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                              models=self.model, metric=self.metric, standardisation=self.standardisation,
+                              model=self.model, metric=self.metric, standardisation=self.standardisation,
                               ratio=self.ratio, k=self.k)[0] for ind in neighborhood]
             bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(neighborhood), cols=self.cols)
             bestInd = bestInd.tolist()
@@ -97,5 +94,5 @@ class Random(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code, G - same, G
+        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same, G
 

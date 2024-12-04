@@ -1,11 +1,10 @@
 import os
-import random
 import time
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
-from utility.utility import createDirectory, add, create_population_models, fitness
+from utility.utility import createDirectory, add, create_population, fitness, diversification
 
 
 class LocalSearch(Heuristic):
@@ -20,54 +19,9 @@ class LocalSearch(Heuristic):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
         self.size = size or self.N
-        self.nb = nb or 1 / self.D
+        self.nb = nb or -1
         self.path = os.path.join(self.path, 'local' + self.suffix)
         createDirectory(path=self.path)
-
-    @staticmethod
-    def diversification(individual, distance, models):
-        neighbor = individual.copy()
-        has_changed = False
-        for chromosome in range(len(individual)):
-            if random.random() < distance:
-                if chromosome != len(individual) - 1:
-                    neighbor[chromosome] = int(not neighbor[chromosome])
-                    has_changed = True
-                else:
-                    r = random.randint(0, len(models) - 1)
-                    while r == neighbor[chromosome] and len(models) > 1:
-                        r = random.randint(0, len(models) - 1)
-                    neighbor[chromosome] = r
-                    has_changed = True
-        if not has_changed:
-            chromosome = random.randint(0, len(individual) - 1)
-            if chromosome != len(individual) - 1:
-                neighbor[chromosome] = int(not neighbor[chromosome])
-            else:
-                r = random.randint(0, len(models) - 1)
-                while r == neighbor[chromosome] and len(models) > 1:
-                    r = random.randint(0, len(models) - 1)
-                neighbor[chromosome] = r
-        return neighbor
-
-    @staticmethod
-    def add_neighborhood(scores, models, inds, cols):
-        argmax = np.argmax(scores)
-        argmin = np.argmin(scores)
-        bestScore = scores[argmax]
-        worstScore = scores[argmin]
-        bestModel = models[argmax]
-        bestInd = inds[argmax]
-        bestCols = cols[argmax]
-        return bestScore, worstScore, bestModel, bestInd, bestCols, argmax
-
-    @staticmethod
-    def remove_neighbor(scores, models, inds, cols, argmax):
-        scores.pop(argmax)
-        models.pop(argmax)
-        np.delete(inds, argmax)
-        cols.pop(argmax)
-        return scores, models, inds, cols
 
     def specifics(self, bestInd, g, t, last, out):
         string = "Disruption Rate: " + str(self.nb) + os.linesep
@@ -82,13 +36,13 @@ class LocalSearch(Heuristic):
         np.random.seed(None)
         # Measuring the execution time
         instant = time.time()
-        # Generation (G) and Tabu List initialisation
+        # Generation (G) initialisation
         G, same1, same2, stop = 0, 0, 0, False
         # Population P initialisation
-        P = create_population_models(inds=self.N, size=self.D + 1, models=self.model)
+        P = create_population(inds=self.N, size=self.D)
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          models=self.model, metric=self.metric, standardisation=self.standardisation,
+                          model=self.model, metric=self.metric, standardisation=self.standardisation,
                           ratio=self.ratio, k=self.k)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
@@ -98,7 +52,6 @@ class LocalSearch(Heuristic):
         print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
                                  mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                  time_total=time_debut, g=G, cpt=0, verbose=self.verbose) + "\n"
-        scoreMax, subsetMax = bestScore, bestSubset
         # Main process iteration (generation iteration)
         while G < self.Gmax:
             instant = time.time()
@@ -106,11 +59,11 @@ class LocalSearch(Heuristic):
             neighborhood = []
             for i in range(self.N):
                 # Neighbor calculation
-                neighbor = self.diversification(individual=bestInd, distance=self.nb, models=self.model)
+                neighbor = diversification(individual=indMax, distance=self.nb)
                 neighborhood.append(neighbor)
             # Evaluate the neighborhood
             scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                              models=self.model, metric=self.metric, standardisation=self.standardisation,
+                              model=self.model, metric=self.metric, standardisation=self.standardisation,
                               ratio=self.ratio, k=self.k)[0] for ind in neighborhood]
             bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(neighborhood), cols=self.cols)
             G = G + 1
@@ -135,4 +88,4 @@ class LocalSearch(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model[indMax[-1]], pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G

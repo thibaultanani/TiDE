@@ -5,7 +5,6 @@ setup(
     version='0.1',
     packages=find_packages(),
     install_requires=[
-        'mrmr-selection',
         'numpy',
         'openpyxl',
         'pandas',

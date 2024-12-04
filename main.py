@@ -12,11 +12,11 @@ from sklearn.tree import DecisionTreeClassifier
 
 from feature_selections.filters import Filter
 from feature_selections.heuristics.population_based import Genetic, Differential, Pbil, Tide
-from feature_selections.heuristics.single_solution import LocalSearch, Tabu
+from feature_selections.heuristics.single_solution import ForwardSelection, BackwardSelection, LocalSearch, Tabu
 from feature_selections.heuristics import Random
 
 from utility.utility import read
-from sklearn.linear_model import RidgeClassifier, LogisticRegression, Ridge, LinearRegression, SGDClassifier
+from sklearn.linear_model import RidgeClassifier, LogisticRegression, Ridge, LinearRegression, SGDClassifier, Lasso
 from sklearn.svm import LinearSVC, LinearSVR, SVC
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
@@ -27,62 +27,60 @@ from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline
 
 if __name__ == '__main__':
-    datasets = ['feature_noise', 'madelon', 'tian', 'hiva_agnostic']
-    stds = [False, True, True, True]
+    datasets = ['A_baseline', 'A_instance', 'A_imbalanced', 'A_noise']
+    stds = [True, True, True, True]
+    drops_lists = [[], [], [], [],]
     metric = balanced_accuracy_score
-    tmax = 3600*5
+    tmax = 3600
     k = 5
     verbose = True
-    methods = [[LogisticRegression(random_state=42, solver="lbfgs", class_weight="balanced", max_iter=10000)],
-               [RandomForestClassifier(n_estimators=5, class_weight="balanced", random_state=42)],
-               [KNeighborsClassifier(weights='distance')],
-               [SVC(random_state=42, class_weight="balanced", kernel=rbf_kernel)]]
-    suffixes = ['_logistic', '_random', '_knn', '_svc']
-    for l in range(len(methods)):
-        m = methods[l]
-        suffix = suffixes[l]
+    suffixes = ['_log', '_tree', '_knn']
+    methods = [LogisticRegression(random_state=42, solver="lbfgs", class_weight="balanced", max_iter=10000),
+               DecisionTreeClassifier(random_state=42, class_weight="balanced"),
+               KNeighborsClassifier(weights='distance', algorithm='kd_tree')]
+    tabus = []
+    for (m, suffix) in zip(methods, suffixes):
         for i in range(len(datasets)):
             train = read(filename=datasets[i])
+            try:
+                m.n_neighbors = int(math.sqrt(train.shape[0]/k))
+            except AttributeError:
+                pass
             test = None
             name = datasets[i] + suffix
             target = "target"
             std = stds[i]
-            drops = []
+            drops = drops_lists[i]
+            anov = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
+                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="Anova")
+            mrmr = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
+                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="MRMR")
+            surf = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
+                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="SURF")
             rand = Random(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                           metric=metric, model=m, Tmax=tmax, verbose=verbose)
+            sffs = ForwardSelection(name=name, target=target, train=train, test=test, k=k, standardisation=std,
+                                    drops=drops, metric=metric, model=m, Tmax=tmax, verbose=verbose)
+            sfbs = BackwardSelection(name=name, target=target, train=train, test=test, k=k, standardisation=std,
+                                     drops=drops, metric=metric, model=m, Tmax=tmax, verbose=verbose)
             local = LocalSearch(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                                 metric=metric, model=m, Tmax=tmax, verbose=verbose)
             tabu = Tabu(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                         metric=metric, model=m, Tmax=tmax, verbose=verbose)
             gene = Genetic(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                            metric=metric, model=m, Tmax=tmax, verbose=verbose)
-            diff = Differential(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                                metric=metric, model=m, Tmax=tmax, verbose=verbose)
             pbil = Pbil(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                         metric=metric, model=m, Tmax=tmax, verbose=verbose)
+            diff = Differential(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
+                                metric=metric, model=m, Tmax=tmax, suffix='_rand', verbose=verbose)
+            diff2 = Differential(name=name, target=target, train=train, test=test, k=k, standardisation=std,
+                                 drops=drops,  metric=metric, model=m, Tmax=tmax, suffix='_best', verbose=verbose,
+                                 strat=True)
             tide = Tide(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                        metric=metric, model=m, Tmax=tmax, suffix='_reliefF', verbose=verbose)
+                        metric=metric, model=m, Tmax=tmax, suffix='_anova', verbose=verbose)
             tide2 = Tide(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
                          metric=metric, model=m, Tmax=tmax, verbose=verbose, filter_init=False)
-            corr = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="Correlation")
-            anov = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="Anova")
-            info = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="Mutual Information")
-            mrmr = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="MRMR")
-            reli = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-                          metric=metric, model=m, Tmax=tmax, verbose=verbose, method="ReliefF")
-            # surf = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-            #               metric=metric, model=m, Tmax=tmax, verbose=verbose, method="SURF")
-            # multi = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-            #                metric=metric, model=m, Tmax=tmax, verbose=verbose, method="MultiSURF")
-            # turf = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-            #               metric=metric, model=m, Tmax=tmax, verbose=verbose, method="TURF")
-            # forest = Filter(name=name, target=target, train=train, test=test, k=k, standardisation=std, drops=drops,
-            #                 metric=metric, model=m, Tmax=tmax, verbose=verbose, method="RandomForest")
-            selection_methods = [rand, local, tabu, gene, diff, pbil, tide, tide2, corr, anov, info, mrmr, reli]
+            selection_methods = [anov, mrmr, surf, rand, sffs, sfbs, local, tabu, gene, pbil, diff, diff2, tide, tide2]
             num_processes = multiprocessing.cpu_count()
             results = []
             with ProcessPoolExecutor(max_workers=num_processes) as executor:
@@ -95,7 +93,6 @@ if __name__ == '__main__':
                     except Exception as e:
                         print(f"An error has occurred with the method {id_method + 1}: {str(e)}")
                         traceback.print_exc()
-
             results = sorted(results, key=lambda x: x[0], reverse=True)
             results_str = "\nRankings:\n\n"
             i = 0

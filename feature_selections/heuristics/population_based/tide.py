@@ -5,7 +5,6 @@ import numpy as np
 from scipy.stats import beta
 from sklearn.feature_selection import f_classif
 
-from feature_selections.filters import Filter
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
 from utility.utility import createDirectory, add, get_entropy, create_population, fitness
@@ -62,22 +61,50 @@ class Tide(Heuristic):
                 break
         return vector
 
-    def create_population_filter(self):
-        _, filter_scores = Filter.surf_selection(df=self.train, target=self.target)
-        scores = [0] * self.D
-        for score in filter_scores:
-            scores[self.cols.get_loc(score[0])] = score[1]
-        min_scores, max_scores = min(scores), max(scores)
-        normalised_scores = [(value - min_scores) / (max_scores - min_scores) for value in scores]
-        interpolated_scores = [0.1 + 0.8 * score for score in normalised_scores]
-        pop = np.zeros((self.N, self.D), dtype=bool)
-        for i in range(self.N):
-            for j in range(len(pop[i])):
-                if random.random() < interpolated_scores[j]:
-                    pop[i][j] = True
-                else:
-                    pop[i][j] = False
-        return pop
+    def forward_init(self):
+        debut = time.time()
+        selected_features = []
+        scoreMax, indMax = -np.inf, 0
+        score, model, col, vector, G = -np.inf, 0, 0, 0, 0
+        remaining_features = list(range(self.D))
+        improvement = True
+        while G < self.Gmax and improvement:
+            improvement = False
+            best_feature_to_add = None
+            for feature in self.cols:
+                if feature not in selected_features:
+                    candidate_features = selected_features + [feature]
+                    candidate = np.zeros(self.D, dtype=int)
+                    for var in candidate_features:
+                        candidate[self.cols.get_loc(var)] = 1
+                    score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
+                                    target=self.target, model=self.model, metric=self.metric,
+                                    standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+                    if score > scoreMax:
+                        scoreMax, indMax = score, candidate
+                        best_feature_to_add = feature
+                        improvement = True
+            if best_feature_to_add is not None:
+                selected_features.append(best_feature_to_add)
+            best_feature_to_remove = None
+            for feature in selected_features:
+                candidate_features = [f for f in selected_features if f != feature]
+                candidate = np.zeros(self.D, dtype=int)
+                for var in candidate_features:
+                    candidate[self.cols.get_loc(var)] = 1
+                score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate, target=self.target,
+                                model=self.model, metric=self.metric, standardisation=self.standardisation,
+                                ratio=self.ratio, k=self.k)[0]
+                if score > scoreMax:
+                    scoreMax, indMax = score, candidate
+                    best_feature_to_remove = feature
+                    improvement = True
+            if best_feature_to_remove is not None:
+                selected_features.remove(best_feature_to_remove)
+            G = G + 1
+            if time.time() - debut >= self.Tmax or not remaining_features or not improvement or G == self.Gmax:
+                break
+        return indMax
 
     @staticmethod
     def mutate(P, n_ind, current, tbest):
@@ -130,10 +157,10 @@ class Tide(Heuristic):
         G, same1, same2, stop = 0, 0, 0, False
         # Population P initialisation
         P = create_population(inds=self.N, size=self.D)
-        r = None
+        r1, r2 = None, None
         if self.filter_init:
-            r = self.anova_init()
-            P[0] = r
+            r1, r2 = self.anova_init(), self.forward_init()
+            P[0], P[1] = r1, r2
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
                           model=self.model, metric=self.metric, standardisation=self.standardisation,
@@ -192,7 +219,7 @@ class Tide(Heuristic):
                 same1 = 0
                 P = create_population(inds=self.N, size=self.D)
                 if self.filter_init:
-                    P[0], P[1] = r, indMax
+                    P[0], P[1], P[2] = r1, r2, indMax
                 else:
                     P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,

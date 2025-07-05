@@ -16,11 +16,9 @@ class Genetic(Heuristic):
         mutation (int): Maximum number of mutations for each child
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
-    def __init__(self, name, target, train, test, model, drops=None, metric=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, mutation=None, entropy=None, suffix=None, k=None, standardisation=None,
-                 verbose=None):
-        super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
-                         suffix, verbose)
+    def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+                 Gmax=None, mutation=None, entropy=None, suffix=None, cv=None, verbose=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
         self.mutation = mutation or -1
         self.entropy = entropy or 0.05
         self.path = os.path.join(self.path, 'genetic' + self.suffix)
@@ -103,8 +101,7 @@ class Genetic(Heuristic):
         P = create_population(inds=self.N, size=self.D)
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          model=self.model, metric=self.metric, standardisation=self.standardisation,
-                          ratio=self.ratio, k=self.k)[0] for ind in P]
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
         mean_scores = float(np.mean(scores))
@@ -127,8 +124,8 @@ class Genetic(Heuristic):
                 child = self.crossover(parent1, parent2)
                 child = self.mutate(individual=child, mutation=self.mutation)
                 child_score = fitness(train=self.train, test=self.test, columns=self.cols, ind=child,
-                                      target=self.target, model=self.model, metric=self.metric,
-                                      standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+                                      target=self.target, pipeline=self.pipeline, scoring=self.scoring,
+                                      ratio=self.ratio, cv=self.cv)[0]
                 scores.append(child_score)
                 P.append(np.asarray(child))
             bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
@@ -151,8 +148,7 @@ class Genetic(Heuristic):
                 P = create_population(inds=self.N, size=self.D)
                 P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                                  model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                  ratio=self.ratio, k=self.k)[0] for ind in P]
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]for ind in P]
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
                 stop = True
@@ -163,4 +159,4 @@ class Genetic(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G

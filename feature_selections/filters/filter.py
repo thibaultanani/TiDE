@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import numpy as np
 import psutil
+import joblib
 from scipy.stats import pearsonr
 from sklearn.feature_selection import f_classif, mutual_info_classif
 from skrebate import SURF
@@ -17,13 +18,13 @@ class Filter(FeatureSelection):
     Parent class for filter methods
 
     Args:
-        method (str)  : Filter method to use for feature selection
-        quantitative (bool) : If the target feature is quantitative or not (only for mrmr)
+        method (str): Filter method to use for feature selection
+        quantitative (bool): If the target feature is quantitative or not (only for mrmr)
     """
-    def __init__(self, name, target, model, train, test=None, k=None, standardisation=None, drops=None, metric=None,
+    def __init__(self, name, target, pipeline, train, test=None, cv=None, drops=None, scoring=None,
                  Gmax=None, quantitative=None, Tmax=None, ratio=None, suffix=None, verbose=None, method=None):
-        super().__init__(name, target, model, train, test, k, standardisation, drops, metric, Gmax, Tmax, ratio, suffix,
-                         verbose)
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring,
+                         Gmax, Tmax, ratio, suffix, verbose)
         if method is None or method == "Correlation":
             self.method, self.func, self.v_name = "Correlation", self.correlation_selection, "CORR"
         elif method == "Anova":
@@ -44,38 +45,55 @@ class Filter(FeatureSelection):
                   "   mean: {:2.4f}    G time: {}    T time: {}    last: {:6d}" \
             .format(name, pid, g, maxi, feats, best, mean, time_exe, time_total, cpt)
         print_out = print_out + display
-        if verbose: print(display)
+        if verbose:
+            print(display)
         return print_out
 
     def save(self, name, bestInd, scores, g, t, last, out):
         a = os.path.join(os.path.join(self.path, 'results.txt'))
-        f = open(a, "w")
-        bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
-        score_train, y_true, y_pred = fitness(train=self.train, test=self.test, columns=self.cols, ind=bestInd,
-                                              target=self.target, model=self.model, metric=self.metric,
-                                              standardisation=self.standardisation, ratio=0, k=self.k)
-        tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
-        string = "Filter: " + str(name) + os.linesep + \
-                 "Iterations: " + str(self.Gmax) + os.linesep + \
-                 "Iterations Performed: " + str(g) + os.linesep + \
-                 "Latest Improvement: " + str(last) + os.linesep + \
-                 "Latest Improvement (Ratio): " + str(1 - (last / g)) + os.linesep + \
-                 "K-fold cross validation: " + str(self.k) + os.linesep + \
-                 "Standardisation: " + str(self.standardisation) + os.linesep + \
-                 "Method: " + str(self.model.__class__.__name__) + os.linesep + \
-                 "Best Score: " + str(score_train) + os.linesep + "TP: " + str(tp) + \
-                 " TN: " + str(tn) + " FP: " + str(fp) + " FN: " + str(fn) + os.linesep + \
-                 "Best Subset: " + str(bestSubset) + os.linesep + \
-                 "Number of Features: " + str(len(bestSubset)) + os.linesep + \
-                 "Number of Features (Ratio): " + str(len(bestSubset) / len(self.cols)) + os.linesep + \
-                 "Score of Features: " + str(scores) + os.linesep + \
-                 "Execution Time: " + str(round(t.total_seconds())) + " (" + str(t) + ")" + os.linesep + \
-                 "Memory: " + str(psutil.virtual_memory())
-        f.write(string)
-        f.close()
-        a = os.path.join(os.path.join(self.path, 'log.txt'))
-        f = open(a, "a")
-        f.write(out)
+        with open(a, "w") as f:
+            try:
+                method = self.pipeline.steps[-1][1].__class__.__name__
+            except Exception:
+                method = str(self.pipeline)
+            bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
+            score_train, y_true, y_pred = fitness(
+                train=self.train,
+                test=self.test,
+                columns=self.cols,
+                ind=bestInd,
+                target=self.target,
+                pipeline=self.pipeline,
+                scoring=self.scoring,
+                ratio=0,
+                cv=self.cv
+            )
+            tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
+            string = (
+                    f"Filter: {name}" + os.linesep +
+                    f"Iterations: {self.Gmax}" + os.linesep +
+                    f"Iterations Performed: {g}" + os.linesep +
+                    f"Latest Improvement: {last}" + os.linesep +
+                    f"Latest Improvement (Ratio): {1 - (last / g)}" + os.linesep +
+                    f"Cross-validation strategy: {str(self.cv)}" + os.linesep +
+                    f"Method: {method}" + os.linesep +
+                    f"Best Score: {score_train}" + os.linesep +
+                    f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep +
+                    f"Best Subset: {bestSubset}" + os.linesep +
+                    f"Number of Features: {len(bestSubset)}" + os.linesep +
+                    f"Number of Features (Ratio): {len(bestSubset) / len(self.cols)}" + os.linesep +
+                    f"Score of Features: {scores}" + os.linesep +
+                    f"Execution Time: {round(t.total_seconds())} ({t})" + os.linesep +
+                    f"Memory: {psutil.virtual_memory()}"
+            )
+            f.write(string)
+        a = os.path.join(self.path, 'log.txt')
+        with open(a, "a") as f:
+            f.write(out)
+        # Pipeline saving
+        pipeline_path = os.path.join(self.path, 'pipeline.joblib')
+        joblib.dump(self.pipeline, pipeline_path)
+
 
     @staticmethod
     def correlation_selection(df, target):
@@ -123,7 +141,6 @@ class Filter(FeatureSelection):
                          for column, value in relevance.items()}
         else:
             f_values, _ = f_classif(X, y)
-            # relevance = {column: f_value for column, f_value in zip(X.columns, f_values)}
             min_f_value, max_f_value = min(f_values), max(f_values)
             relevance = {column: (f_value - min_f_value) / (max_f_value - min_f_value)
                          for column, f_value in zip(X.columns, f_values)}
@@ -163,7 +180,7 @@ class Filter(FeatureSelection):
         createDirectory(path=self.path)
         print_out = ""
         np.random.seed(None)
-        score, model, col, vector, s = -np.inf, [], [], [], -np.inf
+        score, col, vector, s = -np.inf, [], [], -np.inf
         G, same, stop = 0, 0, False
         try:
             sorted_features, filter_scores = self.func(df=self.train, target=self.target)
@@ -182,9 +199,8 @@ class Filter(FeatureSelection):
             v = [0] * self.D
             for var in top_k_features:
                 v[self.cols.get_loc(var)] = 1
-            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v,
-                        target=self.target, model=self.model, metric=self.metric,
-                        standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v, target=self.target,
+                        pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
             if s > score:
                 same = 0
                 score, vector = s, v
@@ -194,14 +210,12 @@ class Filter(FeatureSelection):
             print_out = self.print_(print_out=print_out, name=self.v_name, pid=pid, maxi=score, best=s, mean=s,
                                     feats=len(col), time_exe=time_instant, time_total=time_debut, g=G, cpt=same,
                                     verbose=self.verbose) + "\n"
-            # If the time limit is exceeded, we stop or 100% reached
             if time.time() - debut >= self.Tmax or G == len(num_features):
                 stop = True
-            # Write important information to file
             if G % 10 == 0 or G == self.Gmax or stop:
                 self.save(name=self.method, bestInd=vector, scores=filter_scores, g=G,
                           t=timedelta(seconds=(time.time() - debut)), last=G - same, out=print_out)
                 print_out = ""
                 if stop:
                     break
-        return score, vector, col, self.model, pid, self.v_name, G - same, G
+        return score, vector, col, self.pipeline, pid, self.v_name, G - same, G

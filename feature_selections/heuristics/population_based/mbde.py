@@ -20,13 +20,10 @@ class Nmbde(Heuristic):
         b (float)      : Bandwidth factor for probability estimation operator (default 20)
         entropy (float): Minimum threshold of diversity in the population to be reached before a reset
     """
-    def __init__(self, name, target, model, train, test=None, drops=None, metric=None,
-                 Tmax=None, ratio=None, N=None, Gmax=None,
-                 Fmax=0.8, Fmin=0.005, CR=0.2, strat=False, b=20.0,
-                 entropy=None, suffix=None, k=None, standardisation=None,
-                 verbose=None):
-        super().__init__(name, target, model, train, test, k, standardisation,
-                         drops, metric, N, Gmax, Tmax, ratio, suffix, verbose)
+    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None,
+                 N=None, Gmax=None, Fmax=0.8, Fmin=0.005, CR=0.2, strat=False, b=20.0, entropy=None, suffix=None,
+                 cv=None, verbose=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
         # Differential evolution parameters
         self.Fmax = Fmax
         self.Fmin = Fmin
@@ -98,10 +95,8 @@ class Nmbde(Heuristic):
         G, same1, same2 = 0, 0, 0
         P = create_population(inds=self.N, size=self.D)
         # initial evaluation
-        scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind,
-                          target=self.target, model=self.model, metric=self.metric,
-                          standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
-                  for ind in P]
+        scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
 
@@ -123,10 +118,8 @@ class Nmbde(Heuristic):
 
                 # evaluate
                 if not np.array_equal(P[i], Ui):
-                    score_i = fitness(train=self.train, test=self.test, columns=self.cols,
-                                      ind=Ui, target=self.target, model=self.model,
-                                      metric=self.metric, standardisation=self.standardisation,
-                                      ratio=self.ratio, k=self.k)[0]
+                    score_i = fitness(train=self.train, test=self.test, columns=self.cols, ind=Ui, target=self.target,
+                                      pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
                 else:
                     score_i = scores[i]
 
@@ -156,10 +149,8 @@ class Nmbde(Heuristic):
                 same1 = 0
                 P = create_population(inds=self.N, size=self.D)
                 P[0] = indMax
-                scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind,
-                                  target=self.target, model=self.model, metric=self.metric,
-                                  standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
-                          for ind in P]
+                scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]for ind in P]
                 bestScore, subsetMax, indMax = add(scores=scores, inds=np.asarray(P), cols=self.cols)
 
             # periodic save
@@ -171,4 +162,4 @@ class Nmbde(Heuristic):
             if (time.time() - debut) >= self.Tmax:
                 break
 
-        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G

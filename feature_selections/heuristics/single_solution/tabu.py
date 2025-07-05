@@ -17,10 +17,9 @@ class Tabu(Heuristic):
         size (int): Size of the tabu list
         nb (int)  : Maximal neighbors distance from the current solution
     """
-    def __init__(self, name, target, train, test, model, drops=None, metric=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, size=None, nb=None, suffix=None, k=None, standardisation=None, verbose=None):
-        super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
-                         suffix, verbose)
+    def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+                 Gmax=None, size=None, nb=None, suffix=None, cv=None, verbose=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
         self.size = size or self.N
         self.nb = nb or -1
         self.path = os.path.join(self.path, 'tabu' + self.suffix)
@@ -62,8 +61,7 @@ class Tabu(Heuristic):
         P = create_population(inds=self.N, size=self.D)
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          model=self.model, metric=self.metric, standardisation=self.standardisation,
-                          ratio=self.ratio, k=self.k)[0] for ind in P]
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
         mean_scores = float(np.mean(scores))
@@ -87,8 +85,8 @@ class Tabu(Heuristic):
             # Evaluate the neighborhood
             if neighborhood:
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                                  model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                  ratio=self.ratio, k=self.k)[0] for ind in neighborhood]
+                                  pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
+                          for ind in neighborhood]
                 bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(neighborhood), cols=self.cols)
                 tabuList = self.insert_tabu(tabuList=tabuList, individual=bestInd)
             G = G + 1
@@ -113,4 +111,4 @@ class Tabu(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G

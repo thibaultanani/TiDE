@@ -4,7 +4,7 @@ import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
-from utility.utility import createDirectory, add, fitness
+from utility.utility import createDirectory, fitness
 
 
 class ForwardSelection(Heuristic):
@@ -12,10 +12,9 @@ class ForwardSelection(Heuristic):
     Class that implements the Stepwise Floating Forward Selection (SFFS) heuristic.
     """
 
-    def __init__(self, name, target, train, test, model, drops=None, metric=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, suffix=None, k=None, standardisation=None, verbose=None):
-        super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
-                         suffix, verbose)
+    def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+                 Gmax=None, suffix=None, cv=None, verbose=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
         self.selected_features = []  # Initialize with an empty set of selected features
         self.path = os.path.join(self.path, 'forward_selection' + self.suffix)
         createDirectory(path=self.path)
@@ -48,9 +47,8 @@ class ForwardSelection(Heuristic):
                     for var in candidate_features:
                         candidate[self.cols.get_loc(var)] = 1
                     score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
-                                    target=self.target,
-                                    model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                    ratio=self.ratio, k=self.k)[0]
+                                    target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
+                                    cv=self.cv)[0]
                     if score > scoreMax:
                         scoreMax, indMax = score, candidate
                         best_feature_to_add = feature
@@ -65,9 +63,8 @@ class ForwardSelection(Heuristic):
                 for var in candidate_features:
                     candidate[self.cols.get_loc(var)] = 1
                 score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
-                                target=self.target,
-                                model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                ratio=self.ratio, k=self.k)[0]
+                                target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
+                                cv=self.cv)[0]
                 if score > scoreMax:
                     scoreMax, indMax = score, candidate
                     best_feature_to_remove = feature
@@ -94,4 +91,4 @@ class ForwardSelection(Heuristic):
                 print_out = ""
                 if stop or not remaining_features:
                     break
-        return scoreMax, indMax, self.selected_features, self.model, pid, code, G - same2, G
+        return scoreMax, indMax, self.selected_features, self.pipeline, pid, code, G - same2, G

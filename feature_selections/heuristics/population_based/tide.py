@@ -19,11 +19,9 @@ class Tide(Heuristic):
         filter_init (bool)  : The choice of using anova method for initialisation
         entropy (float)     : Minimum threshold of diversity in the population to be reached before a reset
     """
-    def __init__(self, name, target, model, train, test=None, drops=None, metric=None, Tmax=None, ratio=None,
-                 N=None, Gmax=None, gamma=None, filter_init=None, entropy=None, suffix=None, k=None,
-                 standardisation=None, verbose=None):
-        super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
-                         suffix, verbose)
+    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None,
+                 N=None, Gmax=None, gamma=None, filter_init=None, entropy=None, suffix=None, cv=None, verbose=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
         self.gamma = gamma or 0.8
         if filter_init is False:
             self.filter_init = False
@@ -52,9 +50,8 @@ class Tide(Heuristic):
             v = [0] * self.D
             for var in top_k_features:
                 v[self.cols.get_loc(var)] = 1
-            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v,
-                        target=self.target, model=self.model, metric=self.metric,
-                        standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v, target=self.target,
+                        pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
             if s > score:
                 score, vector = s, v
             if time.time() - debut >= self.Tmax or G == len(num_features):
@@ -78,8 +75,8 @@ class Tide(Heuristic):
                     for var in candidate_features:
                         candidate[self.cols.get_loc(var)] = 1
                     score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
-                                    target=self.target, model=self.model, metric=self.metric,
-                                    standardisation=self.standardisation, ratio=self.ratio, k=self.k)[0]
+                                    target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
+                                    cv=self.cv)[0]
                     if score > scoreMax:
                         scoreMax, indMax = score, candidate
                         best_feature_to_add = feature
@@ -92,9 +89,9 @@ class Tide(Heuristic):
                 candidate = np.zeros(self.D, dtype=int)
                 for var in candidate_features:
                     candidate[self.cols.get_loc(var)] = 1
-                score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate, target=self.target,
-                                model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                ratio=self.ratio, k=self.k)[0]
+                score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
+                                target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
+                                cv=self.cv)[0]
                 if score > scoreMax:
                     scoreMax, indMax = score, candidate
                     best_feature_to_remove = feature
@@ -136,12 +133,10 @@ class Tide(Heuristic):
 
     def specifics(self, bestInd, g, t, last, out):
         if self.filter_init:
-            string = "k: " + str(self.k)
             name = "Tournament In Differential Evolution + ANOVA"
         else:
-            string = "k: No filter initialization"
             name = "Tournament In Differential Evolution"
-        string = string + os.linesep + "Gamma: " + str(self.gamma) + os.linesep
+        string = "Gamma: " + str(self.gamma) + os.linesep
         self.save(name, bestInd, g, t, last, string, out)
 
     def start(self, pid):
@@ -163,8 +158,7 @@ class Tide(Heuristic):
             P[0], P[1] = r1, r2
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          model=self.model, metric=self.metric, standardisation=self.standardisation,
-                          ratio=self.ratio, k=self.k)[0] for ind in P]
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
         mean_scores = float(np.mean(scores))
@@ -194,8 +188,7 @@ class Tide(Heuristic):
                     score_ = scores[i]
                 else:
                     score_ = fitness(train=self.train, test=self.test, columns=self.cols, ind=Ui, target=self.target,
-                                     model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                     ratio=self.ratio, k=self.k)[0]
+                                     pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
                 # Comparison between Xi and Ui
                 if scores[i] <= score_:
                     # Update population
@@ -223,8 +216,7 @@ class Tide(Heuristic):
                 else:
                     P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                                  model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                  ratio=self.ratio, k=self.k)[0] for ind in P]
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]for ind in P]
                 bestScore, bestSubset, bestInd = add(scores=scores[:self.N], inds=np.asarray(P[:self.N]),
                                                      cols=self.cols)
             # If the time limit is exceeded, we stop
@@ -237,4 +229,4 @@ class Tide(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G

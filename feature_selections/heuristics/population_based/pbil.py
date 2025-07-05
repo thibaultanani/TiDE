@@ -20,11 +20,9 @@ class Pbil(Heuristic):
         n (int)         : Number of individuals in the population used to update the proba vector
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
-    def __init__(self, name, target, train, test, model, drops=None, metric=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, LR=None, MP=None, MS=None, n=None, entropy=None, suffix=None, k=None, standardisation=None,
-                 verbose=None):
-        super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
-                         suffix, verbose)
+    def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+                 Gmax=None, LR=None, MP=None, MS=None, n=None, entropy=None, suffix=None, cv=None, verbose=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
         self.LR = LR or 0.1
         self.MP = MP or 0.05
         self.MS = MS or 0.1
@@ -98,8 +96,7 @@ class Pbil(Heuristic):
             P = self.create_population(inds=self.N, size=self.D, probas=probas)
             # Evaluates population
             scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                              model=self.model, metric=self.metric, standardisation=self.standardisation,
-                              ratio=self.ratio, k=self.k)[0] for ind in P]
+                              pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
             bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
             G = G + 1
             same1, same2 = same1 + 1, same2 + 1
@@ -134,4 +131,4 @@ class Pbil(Heuristic):
             if entropy < self.entropy:
                 same1 = 0
                 probas = self.create_probas(size=self.D)
-        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G

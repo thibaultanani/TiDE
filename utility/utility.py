@@ -9,6 +9,7 @@ from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, r
     r2_score
 from sklearn.model_selection import StratifiedKFold, KFold, LeaveOneOut
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_predict
 
 
 def read(filename, separator=','):
@@ -50,40 +51,34 @@ def create_population(inds, size):
     return pop.astype(bool)
 
 
-def fitness(train, test, columns, ind, target, model, metric, standardisation, ratio, k=None):
+def fitness(train, test, columns, ind, target, pipeline, scoring, ratio, cv=None):
+    """
+    train : DataFrame (training)
+    test : DataFrame (test) (None if Cross validation)
+    columns : list of candidate column names
+    ind : binary individual (feature selection)
+    target : name of the target feature
+    pipeline : scikit-learn pipeline including preprocessing + model
+    scoring : sklearn score function (e.g. accuracy_score)
+    ratio : penalty coefficient
+    cv : cross-validation object (StratifiedKFold, KFold, LOO, etc.)
+    """
     if not any(ind[:-1]):
         ind[random.randint(0, len(ind) - 1)] = 1
     subset = [columns[c] for c in range(len(columns)) if ind[c]]
-    train = train[subset + [target]]
-    X_train, y_train = train.drop(columns=[target]), train[target]
-    if test is None and k is not None:
-        skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
-        all_y_val = []
-        all_y_pred = []
-        for train_index, val_index in skf.split(X_train, y_train):
-            X_tr, X_val = X_train.iloc[train_index], X_train.iloc[val_index]
-            y_tr, y_val = y_train.iloc[train_index], y_train.iloc[val_index]
-            if standardisation:
-                scaler = StandardScaler()
-                X_tr = scaler.fit_transform(X_tr)
-                X_val = scaler.transform(X_val)
-            model.fit(X_tr, y_tr)
-            y_pred = model.predict(X_val)
-            all_y_val.extend(y_val)
-            all_y_pred.extend(y_pred)
-        score = metric(all_y_val, all_y_pred) - (ratio * (len(subset) / len(columns)))
-        return score, pd.Series(all_y_val), pd.Series(all_y_pred)
+    train_sub = train[subset + [target]]
+    X_train, y_train = train_sub.drop(columns=[target]), train_sub[target]
+    if test is None and cv is not None:
+        y_pred = cross_val_predict(pipeline, X_train, y_train, cv=cv, n_jobs=1)
+        score = scoring(y_train, y_pred) - (ratio * (len(subset) / len(columns)))
+        return score, y_train.reset_index(drop=True), pd.Series(y_pred)
     else:
-        test = test[subset + [target]]
-        X_test, y_test = test.drop(columns=[target]), test[target]
-        if standardisation:
-            scaler = StandardScaler()
-            X_train = scaler.fit_transform(X_train)
-            X_test = scaler.transform(X_test)
-        model.fit(X_train, y_train)
-        y_pred = model.predict(X_test)
-        score = metric(y_test, y_pred) - (ratio * (len(subset) / len(columns)))
-        return score, y_test, y_pred
+        test_sub = test[subset + [target]]
+        X_test, y_test = test_sub.drop(columns=[target]), test_sub[target]
+        pipeline.fit(X_train, y_train)
+        y_pred = pipeline.predict(X_test)
+        score = scoring(y_test, y_pred) - (ratio * (len(subset) / len(columns)))
+        return score, y_test.reset_index(drop=True), pd.Series(y_pred)
 
 
 def random_int_power(n, power=2):

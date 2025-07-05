@@ -21,11 +21,9 @@ class Differential(Heuristic):
                          default : "rand/1".
         entropy (float): Minimum threshold of diversity in the population to be reached before a reset
     """
-    def __init__(self, name, target, model, train, test=None, drops=None, metric=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, F=None, CR=None, strat=None, entropy=None, suffix=None, k=None, standardisation=None,
-                 verbose=None):
-        super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
-                         suffix, verbose)
+    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+                 Gmax=None, F=None, CR=None, strat=None, entropy=None, suffix=None, cv=None, verbose=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
         self.F = F or 1.0
         self.CR = CR or 0.5
         self.strat = strat or "rand/1"
@@ -258,8 +256,7 @@ class Differential(Heuristic):
         P = create_population(inds=self.N, size=self.D)
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          model=self.model, metric=self.metric, standardisation=self.standardisation,
-                          ratio=self.ratio, k=self.k)[0] for ind in P]
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
         mean_scores = float(np.mean(scores))
@@ -307,8 +304,7 @@ class Differential(Heuristic):
                     score_ = scores[i]
                 else:
                     score_ = fitness(train=self.train, test=self.test, columns=self.cols, ind=Ui, target=self.target,
-                                     model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                     ratio=self.ratio, k=self.k)[0]
+                                     pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
                 # Comparison between Xi and Ui
                 if scores[i] <= score_:
                     # Update population
@@ -333,8 +329,7 @@ class Differential(Heuristic):
                 P = create_population(inds=self.N, size=self.D)
                 P[0] = indMax
                 scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                                  model=self.model, metric=self.metric, standardisation=self.standardisation,
-                                  ratio=self.ratio, k=self.k)[0] for ind in P]
+                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]for ind in P]
                 bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
@@ -346,4 +341,4 @@ class Differential(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.model, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G

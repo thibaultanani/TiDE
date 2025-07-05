@@ -12,20 +12,19 @@ class FeatureSelection:
     Args:
         name (str): Results folder name
         target (str): Target feature name
-        model (object): sklearn learning method object
+        pipeline (Pipeline): sklearn pipeline object including preprocessing + model
         train (pd.DataFrame): Training data
         test (pd.DataFrame, None): Testing data
-        k (int): Number of folds for validation if no test data is provided
-        standardisation (bool): Whether to standardise the data or not
+        cv (CV): Cross validation object if no test data is provided
         drops (list): Features to drop before execution
-        metric: Metric to optimize between accuracy, precision and recall
+        scoring: Metric to optimize between accuracy, precision and recall
         Gmax (int): Total number of iterations
         Tmax (int): Total number of seconds allocated before shutdown
         ratio (float): Importance of the number of features selected in relation to the score calculated
-        suffix (str): Suffix in the folder name of a method (Important when lauching twice the same method !)
+        suffix (str): Suffix in the folder name of a method (Important when launching twice the same method!)
         verbose (bool): Print progress
     """
-    def __init__(self, name, target, model, train, test=None, k=None, standardisation=None, drops=None, metric=None,
+    def __init__(self, name, target, pipeline, train, test=None, cv=None, drops=None, scoring=None,
                  Gmax=None, Tmax=None, ratio=None, suffix=None, verbose=None):
         drops = drops or []
         self.train = train.drop(drops, axis=1)
@@ -39,15 +38,14 @@ class FeatureSelection:
         unique, count = np.unique(train[target], return_counts=True)
         self.n_class = len(unique)
         self.D = len(self.cols)
-        self.metric = metric or balanced_accuracy_score
-        self.model = model
-        self.k = k or 10
+        self.scoring = scoring or balanced_accuracy_score
+        self.pipeline = pipeline
+        self.cv = cv
         self.Gmax = Gmax or 1000000
         self.Tmax = Tmax or 3600
         self.ratio = ratio or 0.00001
         self.suffix = suffix or ''
         self.verbose = verbose or True
-        self.standardisation = standardisation or False
         self.path = os.path.join(os.getcwd(), os.path.join('out', self.name))
         if not os.path.exists(self.path):
             os.makedirs(self.path)

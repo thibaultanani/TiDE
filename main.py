@@ -5,8 +5,8 @@ import traceback
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import pandas as pd
-from sklearn.metrics import balanced_accuracy_score
-from sklearn.model_selection import LeaveOneOut, StratifiedKFold
+from sklearn.metrics import balanced_accuracy_score, r2_score
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold, KFold
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.linear_model import RidgeClassifier, LogisticRegression, Ridge, LinearRegression, SGDClassifier, Lasso
 from sklearn.svm import LinearSVC, LinearSVR, SVC
@@ -115,7 +115,7 @@ if __name__ == '__main__':
                 i = i + 1
                 clf_name = result[3].steps[-1][1].__class__.__name__
                 results_str += (f"Rang: {i}, method: {result[5]}, pid: {result[4]}, "
-                                f"score: {round(result[0], 4)}, classifier: {clf_name}, "
+                                f"score: {round(result[0], 4)}, model: {clf_name}, "
                                 f"n selected: {len(result[2])}, convergence: {result[6]}, "
                                 f"n iter: {result[7]}, subset: {result[2]}\n")
             print(results_str)

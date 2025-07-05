@@ -2,6 +2,7 @@ import abc
 import os
 import psutil
 import joblib
+from sklearn.base import ClassifierMixin, RegressorMixin
 
 from feature_selections import FeatureSelection
 from utility import fitness
@@ -62,7 +63,11 @@ class Heuristic(FeatureSelection):
                 ratio=0,
                 cv=self.cv
             )
-            tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
+            if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
+                tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
+                string_tmp = f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep
+            elif isinstance(self.pipeline.steps[-1][1], RegressorMixin):
+                string_tmp = f"Regression residuals (first 5): {(y_true - y_pred).head().tolist()}" + os.linesep
             string = (
                     f"Heuristic: {name}" + os.linesep +
                     f"Population: {self.N}" + os.linesep +
@@ -74,7 +79,7 @@ class Heuristic(FeatureSelection):
                     specifics +
                     f"Method: {method}" + os.linesep +
                     f"Best Score: {score_train}" + os.linesep +
-                    f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep +
+                    string_tmp +
                     f"Best Subset: {bestSubset}" + os.linesep +
                     f"Number of Features: {len(bestSubset)}" + os.linesep +
                     f"Number of Features (Ratio): {len(bestSubset) / len(self.cols)}" + os.linesep +

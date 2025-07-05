@@ -6,6 +6,7 @@ import numpy as np
 import psutil
 import joblib
 from scipy.stats import pearsonr
+from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.feature_selection import f_classif, mutual_info_classif
 from skrebate import SURF
 
@@ -68,7 +69,11 @@ class Filter(FeatureSelection):
                 ratio=0,
                 cv=self.cv
             )
-            tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
+            if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
+                tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
+                string_tmp = f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep
+            elif isinstance(self.pipeline.steps[-1][1], RegressorMixin):
+                string_tmp = f"Regression residuals (first 5): {(y_true - y_pred).head().tolist()}" + os.linesep
             string = (
                     f"Filter: {name}" + os.linesep +
                     f"Iterations: {self.Gmax}" + os.linesep +
@@ -78,7 +83,7 @@ class Filter(FeatureSelection):
                     f"Cross-validation strategy: {str(self.cv)}" + os.linesep +
                     f"Method: {method}" + os.linesep +
                     f"Best Score: {score_train}" + os.linesep +
-                    f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep +
+                    string_tmp +
                     f"Best Subset: {bestSubset}" + os.linesep +
                     f"Number of Features: {len(bestSubset)}" + os.linesep +
                     f"Number of Features (Ratio): {len(bestSubset) / len(self.cols)}" + os.linesep +

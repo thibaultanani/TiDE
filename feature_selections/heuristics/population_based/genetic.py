@@ -42,8 +42,16 @@ class Genetic(Heuristic):
 
     @staticmethod
     def roulette_selection(population, scores):
-        total_score = sum(scores)
-        probabilities = [score / total_score for score in scores]
+        min_score = min(scores)
+        if min_score < 0:
+            shifted_scores = [s - min_score + 1e-8 for s in scores]
+        else:
+            shifted_scores = scores
+        total_score = sum(shifted_scores)
+        if total_score == 0:
+            probabilities = [1 / len(scores)] * len(scores)
+        else:
+            probabilities = [s / total_score for s in shifted_scores]
         selected_indices = np.random.choice(len(population), 2, p=probabilities, replace=False)
         return population[selected_indices[0]], population[selected_indices[1]]
 

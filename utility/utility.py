@@ -58,7 +58,6 @@ def fitness(train, test, columns, ind, target, model, metric, standardisation, r
     X_train, y_train = train.drop(columns=[target]), train[target]
     if test is None and k is not None:
         skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
-        scores = []
         all_y_val = []
         all_y_pred = []
         for train_index, val_index in skf.split(X_train, y_train):
@@ -70,12 +69,10 @@ def fitness(train, test, columns, ind, target, model, metric, standardisation, r
                 X_val = scaler.transform(X_val)
             model.fit(X_tr, y_tr)
             y_pred = model.predict(X_val)
-            score = metric(y_val, y_pred) - (ratio * (len(subset) / len(columns)))
-            scores.append(score)
             all_y_val.extend(y_val)
             all_y_pred.extend(y_pred)
-        avg_score = np.mean(scores)
-        return avg_score, pd.Series(all_y_val), pd.Series(all_y_pred)
+        score = metric(all_y_val, all_y_pred) - (ratio * (len(subset) / len(columns)))
+        return score, pd.Series(all_y_val), pd.Series(all_y_pred)
     else:
         test = test[subset + [target]]
         X_test, y_test = test.drop(columns=[target]), test[target]

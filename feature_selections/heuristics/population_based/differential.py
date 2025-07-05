@@ -15,7 +15,10 @@ class Differential(Heuristic):
     Args:
         F (float)      : Probability factor controlling the amplification of the differential variation
         CR (float)     : Crossover probability
-        strat (bool)   : Mutation strategy (False for DE/rand/1 or True for DE/best/1)
+        strat (str)    : Mutation strategy :
+                         "rand/1", "best/1", "current-to-rand/1", "current-to-best/1", "rand-to-best/1",
+                         "rand/2", "best/2", "current-to-rand/2", "current-to-best/2", "rand-to-best/2".
+                         default : "rand/1".
         entropy (float): Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, model, train, test=None, drops=None, metric=None, Tmax=None, ratio=None, N=None,
@@ -25,7 +28,13 @@ class Differential(Heuristic):
                          suffix, verbose)
         self.F = F or 1.0
         self.CR = CR or 0.5
-        self.strat = strat or False
+        self.strat = strat or "rand/1"
+        valid_strategies = {
+            "rand/1", "best/1", "current-to-rand/1", "current-to-best/1", "rand-to-best/1",
+            "rand/2", "best/2", "current-to-rand/2", "current-to-best/2", "rand-to-best/2"
+        }
+        if self.strat not in valid_strategies:
+            raise ValueError(f"strat '{self.strat}' invalid. Choose,  {valid_strategies}.")
         self.entropy = entropy or 0.05
         self.indMax = None
         self.path = os.path.join(self.path, 'differential' + self.suffix)
@@ -33,18 +42,192 @@ class Differential(Heuristic):
 
     @staticmethod
     def mutate_rand(P, n_ind, F, current):
-        selected = np.random.choice([i for i in range(len(P)) if i != current], 3, replace=False)
-        Xr1, Xr2, Xr3 = P[selected[0]], P[selected[1]], P[selected[2]]
-        Xr1, Xr2, Xr3 = Xr1.astype(int), Xr2.astype(int), Xr3.astype(int)
-        mutant = [1 if (Xr1[i] + F * (Xr2[i] - Xr3[i])) >= 0.5 else 0 for i in range(n_ind)]
+        """
+        DE/rand/1 : M_i = S_{r1} + F * (S_{r2} - S_{r3})
+        """
+        candidates = [i for i in range(len(P)) if i != current]
+        r1, r2, r3 = np.random.choice(candidates, 3, replace=False)
+        Xr1 = P[r1].astype(int)
+        Xr2 = P[r2].astype(int)
+        Xr3 = P[r3].astype(int)
+        # Calcul bit-per-bit
+        mutant = [1 if (Xr1[i] + F * (Xr2[i] - Xr3[i])) >= 0.5 else 0
+                  for i in range(n_ind)]
         return mutant
 
     @staticmethod
     def mutate_best(P, n_ind, F, current, best):
-        selected = np.random.choice([i for i in range(len(P)) if i != current and i != best], 2, replace=False)
-        Xr1, Xr2, Xr3 = P[best], P[selected[0]], P[selected[1]]
-        Xr1, Xr2, Xr3 = Xr1.astype(int), Xr2.astype(int), Xr3.astype(int)
-        mutant = [1 if (Xr1[i] + F * (Xr2[i] - Xr3[i])) >= 0.5 else 0 for i in range(n_ind)]
+        """
+        DE/best/1 : M_i = S_{b} + F * (S_{r1} - S_{r2})
+        """
+        candidates = [i for i in range(len(P)) if i != current and i != best]
+        r1, r2 = np.random.choice(candidates, 2, replace=False)
+        Xb = P[best].astype(int)
+        Xr1 = P[r1].astype(int)
+        Xr2 = P[r2].astype(int)
+        mutant = [1 if (Xb[i] + F * (Xr1[i] - Xr2[i])) >= 0.5 else 0
+                  for i in range(n_ind)]
+        return mutant
+
+    @staticmethod
+    def mutate_current_to_rand_1(P, n_ind, F, current):
+        """
+        DE/current-to-rand/1 : M_i = S_i + F * (S_{r1} - S_i) + F * (S_{r2} - S_{r3})
+        """
+        candidates = [i for i in range(len(P)) if i != current]
+        r1, r2, r3 = np.random.choice(candidates, 3, replace=False)
+        Si = P[current].astype(int)
+        Sr1 = P[r1].astype(int)
+        Sr2 = P[r2].astype(int)
+        Sr3 = P[r3].astype(int)
+        mutant = [
+            1 if (Si[i] + F * (Sr1[i] - Si[i]) + F * (Sr2[i] - Sr3[i])) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
+        return mutant
+
+    @staticmethod
+    def mutate_current_to_best_1(P, n_ind, F, current, best):
+        """
+        DE/current-to-best/1 : M_i = S_i + F * (S_{b} - S_i) + F * (S_{r1} - S_{r2})
+        """
+        candidates = [i for i in range(len(P)) if i != current and i != best]
+        r1, r2 = np.random.choice(candidates, 2, replace=False)
+        Si = P[current].astype(int)
+        Sb = P[best].astype(int)
+        Sr1 = P[r1].astype(int)
+        Sr2 = P[r2].astype(int)
+        mutant = [
+            1 if (Si[i] + F * (Sb[i] - Si[i]) + F * (Sr1[i] - Sr2[i])) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
+        return mutant
+
+    @staticmethod
+    def mutate_rand_to_best_1(P, n_ind, F, current, best):
+        """
+        DE/rand-to-best/1 : M_i = S_{r1} + F * (S_{b} - S_i) + F * (S_{r2} - S_{r3})
+        """
+        candidates = [i for i in range(len(P)) if i != current]
+        r1, r2, r3 = np.random.choice(candidates, 3, replace=False)
+        Xr1 = P[r1].astype(int)
+        Sb = P[best].astype(int)
+        Si = P[current].astype(int)
+        Xr2 = P[r2].astype(int)
+        Xr3 = P[r3].astype(int)
+        mutant = [
+            1 if (Xr1[i] + F * (Sb[i] - Si[i]) + F * (Xr2[i] - Xr3[i])) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
+        return mutant
+
+    @staticmethod
+    def mutate_rand_2(P, n_ind, F, current):
+        """
+        DE/rand/2 : M_i = S_{r1} + F * (S_{r2} - S_{r3}) + F * (S_{r4} - S_{r5})
+        """
+        candidates = [i for i in range(len(P)) if i != current]
+        r1, r2, r3, r4, r5 = np.random.choice(candidates, 5, replace=False)
+        Sr1 = P[r1].astype(int)
+        Sr2 = P[r2].astype(int)
+        Sr3 = P[r3].astype(int)
+        Sr4 = P[r4].astype(int)
+        Sr5 = P[r5].astype(int)
+        mutant = [
+            1 if (Sr1[i] + F * (Sr2[i] - Sr3[i]) + F * (Sr4[i] - Sr5[i])) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
+        return mutant
+
+    @staticmethod
+    def mutate_best_2(P, n_ind, F, current, best):
+        """
+        DE/best/2 : M_i = S_{b} + F * (S_{r1} - S_{r2}) + F * (S_{r3} - S_{r4})
+        """
+        candidates = [i for i in range(len(P)) if i != current and i != best]
+        r1, r2, r3, r4 = np.random.choice(candidates, 4, replace=False)
+        Sb = P[best].astype(int)
+        Sr1 = P[r1].astype(int)
+        Sr2 = P[r2].astype(int)
+        Sr3 = P[r3].astype(int)
+        Sr4 = P[r4].astype(int)
+        mutant = [
+            1 if (Sb[i] + F * (Sr1[i] - Sr2[i]) + F * (Sr3[i] - Sr4[i])) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
+        return mutant
+
+    @staticmethod
+    def mutate_current_to_rand_2(P, n_ind, F, current):
+        """
+        DE/current-to-rand/2 : M_i = S_i + F * (S_{r1} - S_i) + F * (S_{r2} - S_{r3}) + F * (S_{r4} - S_{r5})
+        """
+        candidates = [i for i in range(len(P)) if i != current]
+        r1, r2, r3, r4, r5 = np.random.choice(candidates, 5, replace=False)
+        Si = P[current].astype(int)
+        Sr1 = P[r1].astype(int)
+        Sr2 = P[r2].astype(int)
+        Sr3 = P[r3].astype(int)
+        Sr4 = P[r4].astype(int)
+        Sr5 = P[r5].astype(int)
+        mutant = [
+            1 if (
+                         Si[i]
+                         + F * (Sr1[i] - Si[i])
+                         + F * (Sr2[i] - Sr3[i])
+                         + F * (Sr4[i] - Sr5[i])
+                 ) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
+        return mutant
+
+    @staticmethod
+    def mutate_current_to_best_2(P, n_ind, F, current, best):
+        """
+        DE/current-to-best/2 : M_i = S_i + F * (S_{b} - S_i) + F * (S_{r1} - S_{r2}) + F * (S_{r3} - S_{r4})
+        """
+        candidates = [i for i in range(len(P)) if i != current and i != best]
+        r1, r2, r3, r4 = np.random.choice(candidates, 4, replace=False)
+        Si = P[current].astype(int)
+        Sb = P[best].astype(int)
+        Sr1 = P[r1].astype(int)
+        Sr2 = P[r2].astype(int)
+        Sr3 = P[r3].astype(int)
+        Sr4 = P[r4].astype(int)
+        mutant = [
+            1 if (
+                         Si[i]
+                         + F * (Sb[i] - Si[i])
+                         + F * (Sr1[i] - Sr2[i])
+                         + F * (Sr3[i] - Sr4[i])
+                 ) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
+        return mutant
+
+    @staticmethod
+    def mutate_rand_to_best_2(P, n_ind, F, current, best):
+        """
+        DE/rand-to-best/2 : M_i = S_{r1} + F * (S_{b} - S_i) + F * (S_{r2} - S_{r3}) + F * (S_{r4} - S_{r5})
+        """
+        candidates = [i for i in range(len(P)) if i != current]
+        r1, r2, r3, r4, r5 = np.random.choice(candidates, 5, replace=False)
+        Sr1 = P[r1].astype(int)
+        Sb = P[best].astype(int)
+        Si = P[current].astype(int)
+        Sr2 = P[r2].astype(int)
+        Sr3 = P[r3].astype(int)
+        Sr4 = P[r4].astype(int)
+        Sr5 = P[r5].astype(int)
+        mutant = [
+            1 if (
+                         Sr1[i]
+                         + F * (Sb[i] - Si[i])
+                         + F * (Sr2[i] - Sr3[i])
+                         + F * (Sr4[i] - Sr5[i])
+                 ) >= 0.5 else 0
+            for i in range(n_ind)
+        ]
         return mutant
 
     @staticmethod
@@ -57,10 +240,8 @@ class Differential(Heuristic):
 
     def specifics(self, bestInd, g, t, last, out):
         string = "F factor: " + str(self.F) + os.linesep + "Crossover rate: " + str(self.CR) + os.linesep
-        if self.strat:
-            self.save("Differential Evolution (DE/best/1)", bestInd, g, t, last, string, out)
-        else:
-            self.save("Differential Evolution (DE/rand/1)", bestInd, g, t, last, string, out)
+        name_strat = f"Differential Evolution (DE/{self.strat})"
+        self.save(name_strat, bestInd, g, t, last, string, out)
 
     def start(self, pid):
         code = "DIFF"
@@ -96,10 +277,29 @@ class Differential(Heuristic):
             # Mutant population creation and evaluation
             for i in range(self.N):
                 # Mutant calculation Vi
-                if self.strat:
-                    Vi = self.mutate_best(P=P, n_ind=self.D, F=self.F, current=i, best=np.argmax(scores))
-                else:
+                best_idx = np.argmax(scores)
+                if self.strat == "rand/1":
                     Vi = self.mutate_rand(P=P, n_ind=self.D, F=self.F, current=i)
+                elif self.strat == "best/1":
+                    Vi = self.mutate_best(P=P, n_ind=self.D, F=self.F, current=i, best=best_idx)
+                elif self.strat == "current-to-rand/1":
+                    Vi = self.mutate_current_to_rand_1(P=P, n_ind=self.D, F=self.F, current=i)
+                elif self.strat == "current-to-best/1":
+                    Vi = self.mutate_current_to_best_1(P=P, n_ind=self.D, F=self.F, current=i, best=best_idx)
+                elif self.strat == "rand-to-best/1":
+                    Vi = self.mutate_rand_to_best_1(P=P, n_ind=self.D, F=self.F, current=i, best=best_idx)
+                elif self.strat == "rand/2":
+                    Vi = self.mutate_rand_2(P=P, n_ind=self.D, F=self.F, current=i)
+                elif self.strat == "best/2":
+                    Vi = self.mutate_best_2(P=P, n_ind=self.D, F=self.F, current=i, best=best_idx)
+                elif self.strat == "current-to-rand/2":
+                    Vi = self.mutate_current_to_rand_2(P=P, n_ind=self.D, F=self.F, current=i)
+                elif self.strat == "current-to-best/2":
+                    Vi = self.mutate_current_to_best_2(P=P, n_ind=self.D, F=self.F, current=i, best=best_idx)
+                elif self.strat == "rand-to-best/2":
+                    Vi = self.mutate_rand_to_best_2(P=P, n_ind=self.D, F=self.F, current=i, best=best_idx)
+                else:
+                    raise ValueError(f"Unknown strategy : {self.strat}")
                 # Child vector calculation Ui
                 Ui = self.crossover(n_ind=self.D, ind=P[i], mutant=Vi, cross_proba=self.CR)
                 # Evaluation of the trial vector

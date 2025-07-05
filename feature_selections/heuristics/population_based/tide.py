@@ -24,7 +24,7 @@ class Tide(Heuristic):
                  standardisation=None, verbose=None):
         super().__init__(name, target, model, train, test, k, standardisation, drops, metric, N, Gmax, Tmax, ratio,
                          suffix, verbose)
-        self.gamma = gamma or 0.9
+        self.gamma = gamma or 0.8
         if filter_init is False:
             self.filter_init = False
         else:

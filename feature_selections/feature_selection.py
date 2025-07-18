@@ -23,9 +23,10 @@ class FeatureSelection:
         ratio (float): Importance of the number of features selected in relation to the score calculated
         suffix (str): Suffix in the folder name of a method (Important when launching twice the same method!)
         verbose (bool): Print progress
+        output (str): The name of the output folder ('out' by default)
     """
     def __init__(self, name, target, pipeline, train, test=None, cv=None, drops=None, scoring=None,
-                 Gmax=None, Tmax=None, ratio=None, suffix=None, verbose=None):
+                 Gmax=None, Tmax=None, ratio=None, suffix=None, verbose=None, output=None):
         drops = drops or []
         self.train = train.drop(drops, axis=1)
         if isinstance(test, pd.DataFrame):
@@ -46,8 +47,12 @@ class FeatureSelection:
         self.ratio = ratio or 0.00001
         self.suffix = suffix or ''
         self.verbose = verbose or True
-        self.path = os.path.join(os.getcwd(), os.path.join('out', self.name))
+        if output is not None:
+            self.path = os.path.join(os.getcwd(), os.path.join(output, self.name))
+        else:
+            self.path = os.path.join(os.getcwd(), os.path.join('out', self.name))
         if not os.path.exists(self.path):
+            print(self.path)
             os.makedirs(self.path)
 
     @abc.abstractmethod

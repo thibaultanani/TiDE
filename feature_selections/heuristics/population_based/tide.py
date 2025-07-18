@@ -20,8 +20,10 @@ class Tide(Heuristic):
         entropy (float)     : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None,
-                 N=None, Gmax=None, gamma=None, filter_init=None, entropy=None, suffix=None, cv=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
+                 N=None, Gmax=None, gamma=None, filter_init=None, entropy=None, suffix=None, cv=None, verbose=None,
+                 output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
+                         verbose, output)
         self.gamma = gamma or 0.8
         if filter_init is False:
             self.filter_init = False
@@ -180,7 +182,8 @@ class Tide(Heuristic):
                 # Mutant calculation Vi
                 Vi = self.mutate(P=P, n_ind=self.D, current=i, tbest=tbest)
                 # Child vector calculation Ui
-                alpha, beta_param = (2 - scores[i]) * 2, (1 + scores[i]) * 2
+                score_i = max(scores[i], 0)
+                alpha, beta_param = (2 - score_i) * 2, (1 + score_i) * 2
                 CR = beta.rvs(alpha, beta_param)
                 Ui = self.crossover(n_ind=self.D, ind=P[i], mutant=Vi, cross_proba=CR)
                 # Evaluation of the trial vector

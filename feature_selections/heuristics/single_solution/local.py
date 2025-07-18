@@ -15,9 +15,9 @@ class LocalSearch(Heuristic):
         nb (int)  : Maximal neighbors distance from the current solution
     """
     def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, size=None, nb=None, suffix=None, cv=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio,
-                         suffix, verbose)
+                 Gmax=None, size=None, nb=None, suffix=None, cv=None, verbose=None, output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
+                         output)
         self.size = size or self.N
         self.nb = nb or -1
         self.path = os.path.join(self.path, 'local' + self.suffix)

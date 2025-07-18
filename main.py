@@ -8,7 +8,8 @@ import pandas as pd
 from sklearn.metrics import balanced_accuracy_score, r2_score
 from sklearn.model_selection import LeaveOneOut, StratifiedKFold, KFold
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.linear_model import RidgeClassifier, LogisticRegression, Ridge, LinearRegression, SGDClassifier, Lasso
+from sklearn.linear_model import RidgeClassifier, LogisticRegression, Ridge, LinearRegression, SGDClassifier, Lasso, \
+    QuantileRegressor
 from sklearn.svm import LinearSVC, LinearSVR, SVC
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
@@ -27,21 +28,31 @@ from feature_selections.heuristics import Random
 from utility.utility import read
 
 if __name__ == '__main__':
-    datasets = ['A_baseline']
-    stds = [True]
-    drops_lists = [[]]
+    datasets = ['df_clean_imputed3']
+    stds = [True, True, True, True]
+    drops_lists = [["id"], [], [], []]
     scoring = balanced_accuracy_score
     tmax = 60 * 30
-    cv = StratifiedKFold(random_state=42, shuffle=True, n_splits=5)
+    cv = KFold(n_splits=5, shuffle=True, random_state=42)
     verbose = True
-    suffixes = ['_gnb']
-    methods = [GaussianNB()]
+    suffixes = ['_role_step1_gnb','_role_step1_log','_role_step1_dt', '_role_step1_knn']
+    # methods = [LogisticRegression(random_state=42, solver="lbfgs", class_weight="balanced", max_iter=10000),
+    #            DecisionTreeClassifier(random_state=42, class_weight="balanced"),
+    #            KNeighborsClassifier(weights='distance', algorithm='kd_tree')]
+    train = read(filename=datasets[0])
+    print(train.shape[0])
+    print(train.shape[1])
+    exit(42)
+    methods = [GaussianNB(),
+               LogisticRegression(random_state=42, solver="lbfgs", class_weight="balanced", max_iter=10000),
+               DecisionTreeClassifier(random_state=42, class_weight="balanced"),
+               KNeighborsClassifier(weights='distance', algorithm='kd_tree', n_neighbors=int(math.sqrt(train.shape[0] / 5)))]
     for (m, suffix) in zip(methods, suffixes):
         for i in range(len(datasets)):
             train = read(filename=datasets[i])
             test = None
             name = datasets[i] + suffix
-            target = "target"
+            target = "Role"
             std = stds[i]
             drops = drops_lists[i]
             if std:
@@ -59,9 +70,9 @@ if __name__ == '__main__':
             mrmr = Filter(name=name, target=target, train=train, test=test, cv=cv,
                           drops=drops, scoring=scoring, pipeline=pipeline, Tmax=tmax,
                           verbose=verbose, method="MRMR")
-            surf = Filter(name=name, target=target, train=train, test=test, cv=cv,
-                          drops=drops, scoring=scoring, pipeline=pipeline, Tmax=tmax,
-                          verbose=verbose, method="SURF")
+            # surf = Filter(name=name, target=target, train=train, test=test, cv=cv,
+            #               drops=drops, scoring=scoring, pipeline=pipeline, Tmax=tmax,
+            #               verbose=verbose, method="SURF")
             rand = Random(name=name, target=target, train=train, test=test, cv=cv,
                           drops=drops, scoring=scoring, pipeline=pipeline, Tmax=tmax,
                           verbose=verbose)
@@ -95,7 +106,7 @@ if __name__ == '__main__':
             tide2 = Tide(name=name, target=target, train=train, test=test, cv=cv,
                          drops=drops, scoring=scoring, pipeline=pipeline, Tmax=tmax,
                          verbose=verbose, filter_init=False)
-            selection_methods = [anov, mrmr, surf, rand, sffs, sfbs, local, tabu, gene, pbil, diff, diff2, tide, tide2]
+            selection_methods = [anov, mrmr, rand, sffs, sfbs, local, tabu, gene, pbil, diff, diff2, tide, tide2]
             num_processes = multiprocessing.cpu_count()
             results = []
             with ProcessPoolExecutor(max_workers=num_processes) as executor:

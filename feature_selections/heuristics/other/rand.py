@@ -15,8 +15,9 @@ class Random(Heuristic):
     Class that implements the random search heuristic
     """
     def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, suffix=None, cv=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
+                 Gmax=None, suffix=None, cv=None, verbose=None, output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
+                         verbose, output)
         self.path = os.path.join(self.path, 'rand' + self.suffix)
         createDirectory(path=self.path)
 

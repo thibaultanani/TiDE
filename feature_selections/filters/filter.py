@@ -22,10 +22,10 @@ class Filter(FeatureSelection):
         method (str): Filter method to use for feature selection
         quantitative (bool): If the target feature is quantitative or not (only for mrmr)
     """
-    def __init__(self, name, target, pipeline, train, test=None, cv=None, drops=None, scoring=None,
-                 Gmax=None, quantitative=None, Tmax=None, ratio=None, suffix=None, verbose=None, method=None):
+    def __init__(self, name, target, pipeline, train, test=None, cv=None, drops=None, scoring=None, Gmax=None,
+                 quantitative=None, Tmax=None, ratio=None, suffix=None, verbose=None, output=None, method=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring,
-                         Gmax, Tmax, ratio, suffix, verbose)
+                         Gmax, Tmax, ratio, suffix, verbose, output)
         if method is None or method == "Correlation":
             self.method, self.func, self.v_name = "Correlation", self.correlation_selection, "CORR"
         elif method == "Anova":

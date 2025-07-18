@@ -22,8 +22,9 @@ class Nmbde(Heuristic):
     """
     def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None,
                  N=None, Gmax=None, Fmax=0.8, Fmin=0.005, CR=0.2, strat=False, b=20.0, entropy=None, suffix=None,
-                 cv=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
+                 cv=None, verbose=None, output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
+                         output)
         # Differential evolution parameters
         self.Fmax = Fmax
         self.Fmin = Fmin

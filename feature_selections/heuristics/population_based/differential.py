@@ -22,8 +22,9 @@ class Differential(Heuristic):
         entropy (float): Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, F=None, CR=None, strat=None, entropy=None, suffix=None, cv=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
+                 Gmax=None, F=None, CR=None, strat=None, entropy=None, suffix=None, cv=None, verbose=None, output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
+                         output)
         self.F = F or 1.0
         self.CR = CR or 0.5
         self.strat = strat or "rand/1"

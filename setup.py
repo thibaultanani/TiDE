@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='ml-feature-selection',
-    version='1.0.0',
+    version='1.1.0',
     packages=find_packages(),
     install_requires=[
         'numpy',
@@ -14,7 +14,7 @@ setup(
         'skrebate',
     ],
     author='Thibault Anani',
-    author_email='thuny.ta@gmail.com',
+    author_email='thibault.anani@gmail.com',
     description='Implements multiple type of filter methods and heuristics for the feature selection problem in '
                 'machine learning as well as a new one: tournament in differential evolution',
     url='https://github.com/thibaultanani/TiDE',

@@ -21,8 +21,10 @@ class Pbil(Heuristic):
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, LR=None, MP=None, MS=None, n=None, entropy=None, suffix=None, cv=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
+                 Gmax=None, LR=None, MP=None, MS=None, n=None, entropy=None, suffix=None, cv=None, verbose=None,
+                 output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
+                         output)
         self.LR = LR or 0.1
         self.MP = MP or 0.05
         self.MS = MS or 0.1

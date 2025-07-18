@@ -17,8 +17,9 @@ class Genetic(Heuristic):
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, mutation=None, entropy=None, suffix=None, cv=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose)
+                 Gmax=None, mutation=None, entropy=None, suffix=None, cv=None, verbose=None, output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
+                         verbose, output)
         self.mutation = mutation or -1
         self.entropy = entropy or 0.05
         self.path = os.path.join(self.path, 'genetic' + self.suffix)

@@ -16,8 +16,9 @@ class Heuristic(FeatureSelection):
         N (int): The number of individuals evaluated per iteration
     """
     def __init__(self, name, target, pipeline, train, test=None, cv=None, drops=None, scoring=None, N=None, Gmax=None,
-                 Tmax=None, ratio=None, suffix=None, verbose=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, Gmax, Tmax, ratio, suffix, verbose)
+                 Tmax=None, ratio=None, suffix=None, verbose=None, output=None):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, Gmax, Tmax, ratio, suffix, verbose,
+                         output)
         self.N = N or 100
 
     @abc.abstractmethod

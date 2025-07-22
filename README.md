@@ -53,21 +53,6 @@ source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -e .
 ```
 
-
-## 📂 Project Structure
-
-```bash
-TiDE/
-├── feature_selections/
-│   ├── filters/
-│   ├── heuristics/
-│   ├── utils/
-├── experiments/
-├── setup.py
-├── README.md
-└── ...
-```
-
 ## 🧪 Usage Example
 
 ```python

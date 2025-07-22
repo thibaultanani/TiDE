@@ -3,8 +3,10 @@ import random
 import time
 import numpy as np
 from scipy.stats import beta
-from sklearn.feature_selection import f_classif
+from sklearn.base import ClassifierMixin
 
+from feature_selections.filters import Filter
+from feature_selections.heuristics.single_solution import ForwardSelection
 from feature_selections.heuristics.heuristic import Heuristic
 from datetime import timedelta
 from utility.utility import createDirectory, add, get_entropy, create_population, fitness
@@ -16,31 +18,38 @@ class Tide(Heuristic):
 
     Args:
         gamma (float)       : The minimum threshold for the percentage of individuals to be selected by tournament
-        filter_init (bool)  : The choice of using anova method for initialisation
+        filter_init (bool)  : The choice of using filter method for initialisation (anova or correlation learning task)
+        sffs_init (bool)    : The choice of using sffs method for initialisation
         entropy (float)     : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None,
-                 N=None, Gmax=None, gamma=None, filter_init=None, entropy=None, suffix=None, cv=None, verbose=None,
-                 output=None):
+                 N=None, Gmax=None, gamma=None, filter_init=None, sffs_init=None, entropy=None, suffix=None, cv=None,
+                 verbose=None, output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
                          verbose, output)
-        self.gamma = gamma or 0.8
+        self.gamma = gamma if gamma is not None else 0.8
         if filter_init is False:
-            self.filter_init = False
+            self.filter_init, self.filter_str = False, ''
         else:
             self.filter_init = True
-        self.entropy = entropy or 0.05
+            if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
+                self.filter_str = ' + ANOVA'
+            else:
+                self.filter_str = ' + CORRELATION'
+        if sffs_init is False:
+            self.sffs_init, self.sffs_str = False, ''
+        else:
+            self.sffs_init, self.sffs_str = True, ' + SFFS'
+        self.entropy = entropy if entropy is not None else 0.05
         self.path = os.path.join(self.path, 'tide' + self.suffix)
         createDirectory(path=self.path)
 
-    def anova_init(self):
+    def filter_initialisation(self):
         debut = time.time()
-        X = self.train.drop([self.target], axis=1)
-        y = self.train[self.target]
-        f_values, _ = f_classif(X, y)
-        f_results = list(zip(X.columns, f_values))
-        f_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in f_results]
+        if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
+            sorted_features, f_results = Filter.anova_selection(df=self.train, target=self.target)
+        else:
+            sorted_features, f_results = Filter.correlation_selection(df=self.train, target=self.target)
         score, model, col, vector, G = -np.inf, 0, 0, 0, 0
         k = [val for val in range(1, 101)]
         num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in k]
@@ -60,48 +69,18 @@ class Tide(Heuristic):
                 break
         return vector
 
-    def forward_init(self):
+    def forward_initialisation(self):
         debut = time.time()
         selected_features = []
-        scoreMax, indMax = -np.inf, 0
-        score, model, col, vector, G = -np.inf, 0, 0, 0, 0
-        remaining_features = list(range(self.D))
+        scoreMax, indMax, G = -np.inf, 0, 0
         improvement = True
         while G < self.Gmax and improvement:
-            improvement = False
-            best_feature_to_add = None
-            for feature in self.cols:
-                if feature not in selected_features:
-                    candidate_features = selected_features + [feature]
-                    candidate = np.zeros(self.D, dtype=int)
-                    for var in candidate_features:
-                        candidate[self.cols.get_loc(var)] = 1
-                    score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
-                                    target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
-                                    cv=self.cv)[0]
-                    if score > scoreMax:
-                        scoreMax, indMax = score, candidate
-                        best_feature_to_add = feature
-                        improvement = True
-            if best_feature_to_add is not None:
-                selected_features.append(best_feature_to_add)
-            best_feature_to_remove = None
-            for feature in selected_features:
-                candidate_features = [f for f in selected_features if f != feature]
-                candidate = np.zeros(self.D, dtype=int)
-                for var in candidate_features:
-                    candidate[self.cols.get_loc(var)] = 1
-                score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
-                                target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
-                                cv=self.cv)[0]
-                if score > scoreMax:
-                    scoreMax, indMax = score, candidate
-                    best_feature_to_remove = feature
-                    improvement = True
-            if best_feature_to_remove is not None:
-                selected_features.remove(best_feature_to_remove)
+            improvement, selected_features, scoreMax, indMax = ForwardSelection.forward_backward_search(
+                train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target, pipeline=self.pipeline,
+                scoring=self.scoring, ratio=self.ratio, cv=self.cv, selected_features=selected_features,
+                scoreMax=scoreMax, indMax=indMax)
             G = G + 1
-            if time.time() - debut >= self.Tmax or not remaining_features or not improvement or G == self.Gmax:
+            if time.time() - debut >= self.Tmax:
                 break
         return indMax
 
@@ -134,10 +113,7 @@ class Tide(Heuristic):
         return scores.index(score_max)
 
     def specifics(self, bestInd, g, t, last, out):
-        if self.filter_init:
-            name = "Tournament In Differential Evolution + ANOVA"
-        else:
-            name = "Tournament In Differential Evolution"
+        name = "Tournament In Differential" + self.filter_str + self.sffs_str
         string = "Gamma: " + str(self.gamma) + os.linesep
         self.save(name, bestInd, g, t, last, string, out)
 
@@ -156,7 +132,7 @@ class Tide(Heuristic):
         P = create_population(inds=self.N, size=self.D)
         r1, r2 = None, None
         if self.filter_init:
-            r1, r2 = self.anova_init(), self.forward_init()
+            r1, r2 = self.filter_initialisation(), self.forward_initialisation()
             P[0], P[1] = r1, r2
         # Evaluates population
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,

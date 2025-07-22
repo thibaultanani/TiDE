@@ -20,8 +20,8 @@ class Genetic(Heuristic):
                  Gmax=None, mutation=None, entropy=None, suffix=None, cv=None, verbose=None, output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
                          verbose, output)
-        self.mutation = mutation or -1
-        self.entropy = entropy or 0.05
+        self.mutation = mutation if mutation is not None else -1
+        self.entropy = entropy if entropy is not None else 0.05
         self.path = os.path.join(self.path, 'genetic' + self.suffix)
         createDirectory(path=self.path)
 

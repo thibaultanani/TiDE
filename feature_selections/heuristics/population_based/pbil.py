@@ -21,15 +21,15 @@ class Pbil(Heuristic):
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, LR=None, MP=None, MS=None, n=None, entropy=None, suffix=None, cv=None, verbose=None,
+                 Gmax=None, LR=0.1, MP=0.05, MS=0.1, n=None, entropy=0.05, suffix=None, cv=None, verbose=None,
                  output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
                          output)
-        self.LR = LR or 0.1
-        self.MP = MP or 0.05
-        self.MS = MS or 0.1
-        self.n = n or int(self.N * 0.15)
-        self.entropy = entropy or 0.05
+        self.LR = LR
+        self.MP = MP
+        self.MS = MS
+        self.n = n if n is not None else int(self.N * 0.15)
+        self.entropy = entropy
         self.path = os.path.join(self.path, 'pbil' + self.suffix)
         createDirectory(path=self.path)
 

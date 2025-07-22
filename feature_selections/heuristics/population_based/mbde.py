@@ -31,7 +31,7 @@ class Nmbde(Heuristic):
         self.CR = CR
         self.strat = strat
         self.b = b
-        self.entropy = entropy or 0.05
+        self.entropy = entropy if entropy is not None else 0.05
         self.path = os.path.join(self.path, 'nmbde' + self.suffix)
         createDirectory(path=self.path)
 

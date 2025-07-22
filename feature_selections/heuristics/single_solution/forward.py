@@ -23,6 +23,42 @@ class ForwardSelection(Heuristic):
     def specifics(self, bestInd, g, t, last, out):
         self.save("Stepwise Floating Forward Selection", bestInd, g, t, last, "", out)
 
+    @staticmethod
+    def forward_backward_search(train, test, cols, D, target, pipeline, scoring, ratio, cv, selected_features,
+                                scoreMax, indMax):
+        improvement = False
+        best_feature_to_add = None
+        for feature in cols:
+            if feature not in selected_features:
+                candidate_features = selected_features + [feature]
+                candidate = np.zeros(D, dtype=int)
+                for var in candidate_features:
+                    candidate[cols.get_loc(var)] = 1
+                score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target, pipeline=pipeline,
+                                scoring=scoring, ratio=ratio, cv=cv)[0]
+                if score > scoreMax:
+                    scoreMax, indMax = score, candidate
+                    best_feature_to_add = feature
+                    improvement = True
+        if best_feature_to_add is not None:
+            selected_features.append(best_feature_to_add)
+        best_feature_to_remove = None
+        for feature in selected_features:
+            candidate_features = [f for f in selected_features if f != feature]
+            candidate = np.zeros(D, dtype=int)
+            for var in candidate_features:
+                if var != feature:
+                    candidate[cols.get_loc(var)] = 1
+            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target, pipeline=pipeline,
+                            scoring=scoring, ratio=ratio, cv=cv)[0]
+            if score > scoreMax:
+                scoreMax, indMax = score, candidate
+                best_feature_to_remove = feature
+                improvement = True
+        if best_feature_to_remove is not None:
+            selected_features.remove(best_feature_to_remove)
+        return improvement, selected_features, scoreMax, indMax
+
     def start(self, pid):
         code = "SFFS"
         debut = time.time()
@@ -32,64 +68,33 @@ class ForwardSelection(Heuristic):
         np.random.seed(None)
         scoreMax, indMax = -np.inf, 0
         # Generation (G) initialisation
-        G, same1, same2, stop = 0, 0, 0, False
-        remaining_features = list(range(self.D))
+        G, same_since_improv, stop = 0, 0, False
         # Main process iteration (generation iteration)
         improvement = True
         while G < self.Gmax and improvement:
             instant = time.time()
-            improvement = False
-            # Step 2: Forward step - add the best feature that improves fitness
-            best_feature_to_add = None
-            for feature in self.cols:
-                if feature not in self.selected_features:
-                    candidate_features = self.selected_features + [feature]
-                    candidate = np.zeros(self.D, dtype=int)
-                    for var in candidate_features:
-                        candidate[self.cols.get_loc(var)] = 1
-                    score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
-                                    target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
-                                    cv=self.cv)[0]
-                    if score > scoreMax:
-                        scoreMax, indMax = score, candidate
-                        best_feature_to_add = feature
-                        improvement = True
-            if best_feature_to_add is not None:
-                self.selected_features.append(best_feature_to_add)
-            # Step 3: Backward step - check if removing any feature improves the score
-            best_feature_to_remove = None
-            for feature in self.selected_features:
-                candidate_features = [f for f in self.selected_features if f != feature]
-                candidate = np.zeros(self.D, dtype=int)
-                for var in candidate_features:
-                    candidate[self.cols.get_loc(var)] = 1
-                score = fitness(train=self.train, test=self.test, columns=self.cols, ind=candidate,
-                                target=self.target, pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio,
-                                cv=self.cv)[0]
-                if score > scoreMax:
-                    scoreMax, indMax = score, candidate
-                    best_feature_to_remove = feature
-                    improvement = True
-            if best_feature_to_remove is not None:
-                self.selected_features.remove(best_feature_to_remove)
+            improvement, self.selected_features, scoreMax, indMax = ForwardSelection.forward_backward_search(
+                train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target, pipeline=self.pipeline,
+                scoring=self.scoring, ratio=self.ratio, cv=self.cv, selected_features=self.selected_features,
+                scoreMax=scoreMax, indMax=indMax)
             G = G + 1
-            same1, same2 = same1 + 1, same2 + 1
+            if improvement:
+                same_since_improv = 0
+            else:
+                same_since_improv += 1
             time_instant = timedelta(seconds=(time.time() - instant))
             time_debut = timedelta(seconds=(time.time() - debut))
-            # Update which individual is the best
-            if improvement:
-                same1, same2 = 0, 0
             print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=scoreMax,
                                      mean=scoreMax, feats=len(self.selected_features), time_exe=time_instant,
-                                     time_total=time_debut, g=G, cpt=same2, verbose=self.verbose) + "\n"
+                                     time_total=time_debut, g=G, cpt=same_since_improv, verbose=self.verbose) + "\n"
             # If the time limit is exceeded, we stop
             if time.time() - debut >= self.Tmax:
                 stop = True
             # Write important information to file
-            if G % 10 == 0 or G == self.Gmax or stop or not remaining_features or not improvement:
-                self.specifics(bestInd=indMax, g=G, t=timedelta(seconds=(time.time() - debut)), last=G - same2,
-                               out=print_out)
+            if G % 10 == 0 or G == self.Gmax or stop or same_since_improv == self.D:
+                self.specifics(bestInd=indMax, g=G, t=timedelta(seconds=(time.time() - debut)),
+                               last=G - same_since_improv, out=print_out)
                 print_out = ""
-                if stop or not remaining_features:
+                if stop:
                     break
-        return scoreMax, indMax, self.selected_features, self.pipeline, pid, code, G - same2, G
+        return scoreMax, indMax, self.selected_features, self.pipeline, pid, code, G - same_since_improv, G

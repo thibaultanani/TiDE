@@ -21,8 +21,8 @@ class Tabu(Heuristic):
                  Gmax=None, size=None, nb=None, suffix=None, cv=None, verbose=None, output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
                          output)
-        self.size = size or self.N
-        self.nb = nb or -1
+        self.size = size if size is not None else self.N
+        self.nb = nb if nb is not None else -1
         self.path = os.path.join(self.path, 'tabu' + self.suffix)
         createDirectory(path=self.path)
 

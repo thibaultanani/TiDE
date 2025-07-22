@@ -44,7 +44,7 @@ class FeatureSelection:
         self.cv = cv
         self.Gmax = Gmax or 1000000
         self.Tmax = Tmax or 3600
-        self.ratio = ratio or 0.00001
+        self.ratio = ratio if ratio is not None else 0.00001
         self.suffix = suffix or ''
         self.verbose = verbose or True
         if output is not None:

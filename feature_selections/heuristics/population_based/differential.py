@@ -22,11 +22,11 @@ class Differential(Heuristic):
         entropy (float): Minimum threshold of diversity in the population to be reached before a reset
     """
     def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, F=None, CR=None, strat=None, entropy=None, suffix=None, cv=None, verbose=None, output=None):
+                 Gmax=None, F=1.0, CR=0.5, strat=None, entropy=0.05, suffix=None, cv=None, verbose=None, output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
                          output)
-        self.F = F or 1.0
-        self.CR = CR or 0.5
+        self.F = F
+        self.CR = CR
         self.strat = strat or "rand/1"
         valid_strategies = {
             "rand/1", "best/1", "current-to-rand/1", "current-to-best/1", "rand-to-best/1",
@@ -34,7 +34,7 @@ class Differential(Heuristic):
         }
         if self.strat not in valid_strategies:
             raise ValueError(f"strat '{self.strat}' invalid. Choose,  {valid_strategies}.")
-        self.entropy = entropy or 0.05
+        self.entropy = entropy
         self.indMax = None
         self.path = os.path.join(self.path, 'differential' + self.suffix)
         createDirectory(path=self.path)

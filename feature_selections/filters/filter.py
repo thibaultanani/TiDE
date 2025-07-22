@@ -19,11 +19,10 @@ class Filter(FeatureSelection):
     Parent class for filter methods
 
     Args:
-        method (str): Filter method to use for feature selection
-        quantitative (bool): If the target feature is quantitative or not (only for mrmr)
+        method (str): Filter method to use for feature selection (default: 'Pearson Correlation')
     """
     def __init__(self, name, target, pipeline, train, test=None, cv=None, drops=None, scoring=None, Gmax=None,
-                 quantitative=None, Tmax=None, ratio=None, suffix=None, verbose=None, output=None, method=None):
+                 Tmax=None, ratio=None, suffix=None, verbose=None, output=None, method=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring,
                          Gmax, Tmax, ratio, suffix, verbose, output)
         if method is None or method == "Correlation":
@@ -36,7 +35,10 @@ class Filter(FeatureSelection):
             self.method, self.func, self.v_name = "MRMR", self.mrmr_selection, "MRMR"
         elif method == "SURF":
             self.method, self.func, self.v_name = "SURF", self.surf_selection, "SURF"
-        self.quantitative = quantitative or None
+        if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
+            self.quantitative = False
+        else:
+            self.quantitative = True
         self.path = os.path.join(self.path, str.lower(self.method) + self.suffix)
         createDirectory(path=self.path)
 

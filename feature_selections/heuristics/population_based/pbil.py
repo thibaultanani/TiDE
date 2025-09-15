@@ -20,7 +20,7 @@ class Pbil(Heuristic):
         n (int)         : Number of individuals in the population used to update the proba vector
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
-    def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
                  Gmax=None, LR=0.1, MP=0.05, MS=0.1, n=None, entropy=0.05, suffix=None, cv=None, verbose=None,
                  output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,

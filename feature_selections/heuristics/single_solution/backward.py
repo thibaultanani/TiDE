@@ -12,7 +12,7 @@ class BackwardSelection(Heuristic):
     Class that implements the Stepwise Floating Backward Selection (SFBS) heuristic.
     """
 
-    def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
                  Gmax=None, suffix=None, cv=None, verbose=None, output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
                          output)

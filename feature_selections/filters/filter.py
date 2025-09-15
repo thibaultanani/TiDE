@@ -8,6 +8,9 @@ import joblib
 from scipy.stats import pearsonr
 from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.feature_selection import f_classif, mutual_info_classif
+from sklearn.metrics import pairwise_distances
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 from skrebate import SURF
 
 from feature_selections import FeatureSelection
@@ -170,16 +173,42 @@ class Filter(FeatureSelection):
         return S, mrmr_scores_list
 
     @staticmethod
-    def surf_selection(df, target):
-        X = df.drop([target], axis=1).values.astype('float64')
+    def surf_selection(df, target, is_quantitative):
+        X_df = df.drop(columns=[target])
         y = df[target].values
-        surf = SURF(n_features_to_select=X.shape[1], discrete_threshold=2, n_jobs=-1)
-        surf.fit(X, y)
-        surf_scores = surf.feature_importances_
-        surf_results = list(zip(df.columns, surf_scores))
-        surf_results.sort(key=lambda x: x[1], reverse=True)
-        sorted_features = [feature for feature, _ in surf_results]
-        return sorted_features, surf_results
+        feature_names = X_df.columns.tolist()
+        scaler = StandardScaler()
+        X = scaler.fit_transform(X_df.values)
+        n_samples, n_features = X.shape
+        print(n_samples, n_features)
+        D = pairwise_distances(X)
+        T = np.mean(D)
+        nbrs = NearestNeighbors(radius=T, algorithm='auto').fit(X)
+        W = np.zeros(n_features, dtype=float)
+        for i in range(n_samples):
+            xi = X[i].reshape(1, -1)
+            yi = y[i]
+            neigh_idx = nbrs.radius_neighbors(xi, return_distance=False)[0]
+            neigh_idx = neigh_idx[neigh_idx != i]
+            if neigh_idx.size == 0:
+                continue
+            if not is_quantitative:
+                for j in neigh_idx:
+                    sign = +1 if y[j] != yi else -1
+                    W += sign * np.abs(xi[0] - X[j])
+            else:
+                dy = np.abs(y[neigh_idx] - yi)
+                sum_dy = np.sum(dy)
+                if sum_dy == 0:
+                    continue
+                for idx_j, j in enumerate(neigh_idx):
+                    dx = np.abs(xi[0] - X[j])
+                    W += dx * (dy[idx_j] / sum_dy)
+        W /= n_samples
+        order = np.argsort(-W)
+        features_sorted = [feature_names[k] for k in order]
+        scores_sorted = W[order]
+        return features_sorted, scores_sorted
 
     def start(self, pid):
         debut = time.time()

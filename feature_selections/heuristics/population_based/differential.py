@@ -238,7 +238,8 @@ class Differential(Heuristic):
         return child
 
     def specifics(self, bestInd, g, t, last, out):
-        string = "F factor: " + str(self.F) + os.linesep + "Crossover rate: " + str(self.CR) + os.linesep
+        string = ("F factor: " + str(self.F) + os.linesep + "Crossover rate: " + str(self.CR) + os.linesep +
+                  "Mutation strategy: (DE/" + str(self.strat) + ")" + os.linesep)
         name_strat = f"Differential Evolution (DE/{self.strat})"
         self.save(name_strat, bestInd, g, t, last, string, out)
 

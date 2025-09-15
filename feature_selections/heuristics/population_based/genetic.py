@@ -16,7 +16,7 @@ class Genetic(Heuristic):
         mutation (int): Maximum number of mutations for each child
         entropy (float) : Minimum threshold of diversity in the population to be reached before a reset
     """
-    def __init__(self, name, target, pipeline, train, test, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
+    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
                  Gmax=None, mutation=None, entropy=None, suffix=None, cv=None, verbose=None, output=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
                          verbose, output)

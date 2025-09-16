@@ -43,7 +43,6 @@ Dependencies are listed in `setup.py` and will be automatically installed. These
 - `scipy`
 - `openpyxl`
 - `psutil`
-- `skrebate`
 
 You can also create a virtual environment beforehand:
 

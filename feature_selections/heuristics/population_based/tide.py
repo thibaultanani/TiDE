@@ -75,7 +75,7 @@ class Tide(Heuristic):
         scoreMax, indMax, G = -np.inf, 0, 0
         improvement = True
         while G < self.Gmax and improvement:
-            improvement, selected_features, scoreMax, indMax = ForwardSelection.forward_step(
+            improvement, selected_features, scoreMax, indMax, _ = ForwardSelection.forward_step(
                 train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target, pipeline=self.pipeline,
                 scoring=self.scoring, ratio=self.ratio, cv=self.cv, selected_features=selected_features,
                 scoreMax=scoreMax, indMax=indMax, start_time=debut, Tmax=self.Tmax)

@@ -10,8 +10,7 @@ from sklearn.base import ClassifierMixin, RegressorMixin
 from sklearn.feature_selection import f_classif, mutual_info_classif
 from sklearn.metrics import pairwise_distances
 from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
-from skrebate import SURF
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 from feature_selections import FeatureSelection
 from utility import createDirectory, fitness
@@ -138,73 +137,146 @@ class Filter(FeatureSelection):
 
     @staticmethod
     def mrmr_selection(df, target, is_quantitative=False):
-        X = df.drop([target], axis=1)
-        y = df[target]
+        # --- Extraction / cast numpy
+        X = df.drop(columns=[target])
+        y = df[target].to_numpy()
+        # S'assure que X est numérique (si besoin, adapter en amont)
+        X = X.astype(float)
+        n, p = X.shape
+        cols = X.columns.to_list()
+        # --- Standardisation colonne par colonne (ddof=1, comme pandas.corr)
+        # Xc: centrée ; std: écart-type échantillon ; Z: variance unitaire
+        Xv = X.to_numpy(copy=False)
+        Xc = Xv - np.nanmean(Xv, axis=0, keepdims=True)
+        # Remplace NaN par 0 après centrage (optionnel selon tes données)
+        Xc = np.nan_to_num(Xc, copy=False)
+        # std échantillon (ddof=1) ; évite division par 0
+        stdX = Xc.std(axis=0, ddof=1)
+        stdX[stdX == 0] = 1.0
+        Z = Xc / stdX  # (n, p)
+        # --- Relevance ∈ [0,1]
         if is_quantitative:
-            relevance, pearson_values = {}, []
-            for column in X.columns:
-                coef, _ = pearsonr(X[column], y)
-                pearson_values.append(coef)
-                relevance[column] = coef
-            min_relevance, max_relevance = min(pearson_values), max(pearson_values)
-            relevance = {column: (value - min_relevance) / (max_relevance - min_relevance)
-                         for column, value in relevance.items()}
+            # Corrélation vectorisée r(Xj, y) puis min-max → [0,1]
+            yc = y.astype(float) - float(np.mean(y))
+            # Si variance(y)==0
+            denom_y = np.sqrt(np.sum((yc ** 2)))
+            if denom_y == 0:
+                r = np.zeros(p, dtype=float)
+            else:
+                # corr(Xj, y) = (Xc_j · yc) / (||Xc_j|| * ||yc||)
+                # comme Z_j = Xc_j / stdX_j, et stdX_j^2 = sum(Xc_j^2)/(n-1),
+                # alors corr = (Z^T @ (yc/std_y)) / (n-1)
+                # On reste sur une forme simple et stable :
+                r = (Xc.T @ yc) / (stdX * denom_y)  # (p,)
+            r = np.nan_to_num(r, nan=0.0)
+            # min-max scaling
+            r_min, r_max = float(np.min(r)), float(np.max(r))
+            if r_max > r_min:
+                relevance = (r - r_min) / (r_max - r_min)
+            else:
+                relevance = np.zeros_like(r)
         else:
-            f_values, _ = f_classif(X, y)
-            min_f_value, max_f_value = min(f_values), max(f_values)
-            relevance = {column: (f_value - min_f_value) / (max_f_value - min_f_value)
-                         for column, f_value in zip(X.columns, f_values)}
-        correlation_matrix = X.corr()
-        min_corr, max_corr = correlation_matrix.min().min(), correlation_matrix.max().max()
-        normalised_corr_matrix = (correlation_matrix - min_corr) / (max_corr - min_corr)
-        S, R, mrmr_scores_list = [], list(X.columns), {}
-        first_feature = max(relevance, key=relevance.get)
-        S.append(first_feature), R.remove(first_feature)
-        mrmr_scores_list[first_feature] = relevance[first_feature]
-        while R:
-            mrmr_scores = {}
-            for feature in R:
-                redundancy = normalised_corr_matrix.loc[feature, S].mean()
-                mrmr_scores[feature] = relevance[feature] - redundancy
-            next_feature = max(mrmr_scores, key=mrmr_scores.get)
-            S.append(next_feature)
-            R.remove(next_feature)
-            mrmr_scores_list[next_feature] = mrmr_scores[next_feature]
+            # f_classif déjà vectorisé
+            f_values, _ = f_classif(Xv, y)
+            f_values = np.nan_to_num(f_values, nan=0.0, posinf=0.0, neginf=0.0)
+            f_min, f_max = float(np.min(f_values)), float(np.max(f_values))
+            if f_max > f_min:
+                relevance = (f_values - f_min) / (f_max - f_min)
+            else:
+                relevance = np.zeros_like(f_values)
+        # --- Sélection gloutonne avec redondance incrémentale
+        selected = np.zeros(p, dtype=bool)
+        red_sum = np.zeros(p, dtype=float)  # somme des redondances (transformées en [0,1]) accumulées
+        S = []
+        mrmr_scores_list = {}
+        # 1) Première feature = max relevance
+        j0 = int(np.argmax(relevance))
+        S.append(cols[j0])
+        selected[j0] = True
+        mrmr_scores_list[cols[j0]] = float(relevance[j0])
+        # 2) Boucle : à chaque étape, on met à jour la redondance via un produit Z^T @ z_s
+        #    puis on choisit la feature maximisant relevance - (red_sum / t)
+        #    NB: corr en [-1,1] → [0,1] via (r+1)/2, cumulée dans red_sum
+        ZT = Z.T  # (p, n) pour éviter des transpositions répétées
+        for _t in range(1, p):  # on produit l'ordre complet (tu as demandé d'ignorer l'arrêt à k)
+            # Dernière sélection s
+            s = int(np.where(selected)[0][-1])
+            # Corrélation de toutes les variables avec Z[:, s] (coût O(n p))
+            z_s = Z[:, s]  # (n,)
+            corr_vec = (ZT @ z_s) / (n - 1.0)  # (p,) corrélation de Pearson (ddof=1)
+            # Transforme vers [0,1] et cumule
+            red_sum += (np.clip(corr_vec, -1.0, 1.0) + 1.0) * 0.5
+            # Score mRMR courant pour les candidates
+            t_cur = np.count_nonzero(selected)
+            scores = relevance - (red_sum / t_cur)
+            # Invalide les déjà sélectionnées
+            scores[selected] = -np.inf
+            # Prochaine feature
+            j_next = int(np.argmax(scores))
+            S.append(cols[j_next])
+            selected[j_next] = True
+            mrmr_scores_list[cols[j_next]] = float(scores[j_next])
+            # (Optionnel) petit early-exit si tout est sélectionné
+            if t_cur + 1 == p:
+                break
         return S, mrmr_scores_list
 
     @staticmethod
     def surf_selection(df, target, is_quantitative):
         X_df = df.drop(columns=[target])
-        y = df[target].values
+        y = df[target].to_numpy()
         feature_names = X_df.columns.tolist()
-        scaler = StandardScaler()
-        X = scaler.fit_transform(X_df.values)
+        X = MinMaxScaler().fit_transform(X_df.to_numpy(dtype=float))
         n_samples, n_features = X.shape
-        print(n_samples, n_features)
-        D = pairwise_distances(X)
-        T = np.mean(D)
-        nbrs = NearestNeighbors(radius=T, algorithm='auto').fit(X)
+        D = pairwise_distances(X, metric="euclidean", n_jobs=1)
+        if n_samples > 1:
+            T = D[np.triu_indices(n_samples, 1)].mean()
+        else:
+            T = 0.0
+        nbrs = NearestNeighbors(radius=T, algorithm="auto", metric="euclidean").fit(X)
         W = np.zeros(n_features, dtype=float)
-        for i in range(n_samples):
-            xi = X[i].reshape(1, -1)
-            yi = y[i]
-            neigh_idx = nbrs.radius_neighbors(xi, return_distance=False)[0]
-            neigh_idx = neigh_idx[neigh_idx != i]
-            if neigh_idx.size == 0:
-                continue
-            if not is_quantitative:
-                for j in neigh_idx:
-                    sign = +1 if y[j] != yi else -1
-                    W += sign * np.abs(xi[0] - X[j])
-            else:
-                dy = np.abs(y[neigh_idx] - yi)
-                sum_dy = np.sum(dy)
-                if sum_dy == 0:
+        if not is_quantitative:
+            classes, counts = np.unique(y, return_counts=True)
+            priors = {c: counts[i] / n_samples for i, c in enumerate(classes)}
+            for i in range(n_samples):
+                xi = X[i]
+                yi = y[i]
+                neigh_idx = nbrs.radius_neighbors(xi.reshape(1, -1), return_distance=False)[0]
+                neigh_idx = neigh_idx[neigh_idx != i]
+                if neigh_idx.size == 0:
                     continue
-                for idx_j, j in enumerate(neigh_idx):
-                    dx = np.abs(xi[0] - X[j])
-                    W += dx * (dy[idx_j] / sum_dy)
-        W /= n_samples
+                hits = neigh_idx[y[neigh_idx] == yi]
+                if hits.size > 0:
+                    W -= np.mean(np.abs(X[hits] - xi), axis=0)
+                denom = max(1e-12, (1.0 - priors.get(yi, 0.0)))
+                miss_acc = np.zeros(n_features, dtype=float)
+                for c in classes:
+                    if c == yi:
+                        continue
+                    miss_c = neigh_idx[y[neigh_idx] == c]
+                    if miss_c.size == 0:
+                        continue
+                    w_c = priors[c] / denom
+                    miss_acc += w_c * np.mean(np.abs(X[miss_c] - xi), axis=0)
+                W += miss_acc
+        else:
+            y = y.astype(float)
+            for i in range(n_samples):
+                xi = X[i]
+                yi = y[i]
+                neigh_idx = nbrs.radius_neighbors(xi.reshape(1, -1), return_distance=False)[0]
+                neigh_idx = neigh_idx[neigh_idx != i]
+                if neigh_idx.size == 0:
+                    continue
+                dy = np.abs(y[neigh_idx] - yi)
+                s = dy.sum()
+                if s <= 0:
+                    continue
+                w = dy / s
+                diffs = np.abs(X[neigh_idx] - xi)
+                W += (w[:, None] * diffs).sum(axis=0)
+        if n_samples > 0:
+            W /= n_samples
         order = np.argsort(-W)
         features_sorted = [feature_names[k] for k in order]
         scores_sorted = W[order]

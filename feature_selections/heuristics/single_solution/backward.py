@@ -9,73 +9,136 @@ from utility.utility import createDirectory, fitness
 
 class BackwardSelection(Heuristic):
     """
-    Class that implements the Stepwise Floating Backward Selection (SFBS) heuristic.
+    Implements Sequential Backward Selection (SBS) and Sequential Floating Backward Selection (SFBS).
+    Choose via `strat`: "sbs" or "sfbs".
     """
 
     def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, suffix=None, cv=None, verbose=None, output=None):
+                 Gmax=None, suffix=None, cv=None, verbose=None, output=None, strat=None):
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
                          output)
-        self.selected_features = self.cols.tolist()  # Start with the full set of features
+        self.selected_features = self.cols.tolist()
         self.path = os.path.join(self.path, 'backward_selection' + self.suffix)
         createDirectory(path=self.path)
+        self.strat = (strat or "sfbs").strip().lower()
+        if self.strat not in {"sbs", "sfbs"}:
+            raise ValueError(f"Unknown strat '{strat}'. Expected 'sbs' or 'sfbs'.")
 
     def specifics(self, bestInd, g, t, last, out):
-        self.save("Stepwise Floating Backward Selection", bestInd, g, t, last, "", out)
+        label = "Sequential Backward Selection (SBS)" if self.strat == "sbs" else "Sequential Floating Backward Selection (SFBS)"
+        self.save(label, bestInd, g, t, last, "", out)
 
     @staticmethod
-    def backward_forward_search(train, test, cols, D, target, pipeline, scoring, ratio, cv, selected_features, scoreMax,
-                                indMax):
+    def _time_exceeded(start_time, Tmax):
+        if Tmax is None:
+            return False
+        return (time.time() - start_time) >= Tmax
+
+    @staticmethod
+    def backward_step(train, test, cols, D, target, pipeline, scoring, ratio, cv,
+                      selected_features, scoreMax, indMax, start_time, Tmax):
+        """
+        One SBS step (remove only). Returns (improvement, selected_features, scoreMax, indMax, timeout).
+        Evaluates candidates and can exit early if time limit exceeded.
+        """
         improvement = False
+        timeout = False
         best_to_remove = None
         for feature in list(selected_features):
+            if BackwardSelection._time_exceeded(start_time, Tmax):
+                timeout = True
+                break
+            candidate_features = [f for f in selected_features if f != feature]
             candidate = np.zeros(D, dtype=int)
-            for var in selected_features:
-                if var != feature:
-                    candidate[cols.get_loc(var)] = 1
-            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target, pipeline=pipeline,
-                            scoring=scoring, ratio=ratio, cv=cv)[0]
+            for var in candidate_features:
+                candidate[cols.get_loc(var)] = 1
+            if BackwardSelection._time_exceeded(start_time, Tmax):
+                timeout = True
+                break
+            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target,
+                            pipeline=pipeline, scoring=scoring, ratio=ratio, cv=cv)[0]
             if score > scoreMax:
                 scoreMax, indMax = score, candidate
                 best_to_remove = feature
                 improvement = True
+            if BackwardSelection._time_exceeded(start_time, Tmax):
+                timeout = True
+                break
         if best_to_remove is not None:
             selected_features.remove(best_to_remove)
+        return improvement, selected_features, scoreMax, indMax, timeout
+
+    @staticmethod
+    def backward_forward_step(train, test, cols, D, target, pipeline, scoring, ratio, cv,
+                              selected_features, scoreMax, indMax, start_time, Tmax):
+        """
+        One SFBS step (remove then conditional addition). Returns (improvement, selected_features, scoreMax, indMax, timeout).
+        Time checks are performed inside both backward and forward phases.
+        """
+        timeout = False
+        overall_improvement = False
+        b_impr, selected_features, scoreMax, indMax, timeout = BackwardSelection.backward_step(
+            train, test, cols, D, target, pipeline, scoring, ratio, cv,
+            selected_features, scoreMax, indMax,
+            start_time, Tmax
+        )
+        overall_improvement = overall_improvement or b_impr
+        if timeout:
+            return overall_improvement, selected_features, scoreMax, indMax, True
         best_to_add = None
         for feature in cols:
-            if feature not in selected_features:
-                candidate = np.zeros(D, dtype=int)
-                for var in selected_features + [feature]:
-                    candidate[cols.get_loc(var)] = 1
-                score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target, pipeline=pipeline,
-                                scoring=scoring, ratio=ratio, cv=cv)[0]
-                if score > scoreMax:
-                    scoreMax, indMax = score, candidate
-                    best_to_add = feature
-                    improvement = True
+            if feature in selected_features:
+                continue
+            if BackwardSelection._time_exceeded(start_time, Tmax):
+                timeout = True
+                break
+            candidate_features = selected_features + [feature]
+            candidate = np.zeros(D, dtype=int)
+            for var in candidate_features:
+                candidate[cols.get_loc(var)] = 1
+            if BackwardSelection._time_exceeded(start_time, Tmax):
+                timeout = True
+                break
+            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target,
+                            pipeline=pipeline, scoring=scoring, ratio=ratio, cv=cv)[0]
+            if score > scoreMax:
+                scoreMax, indMax = score, candidate
+                best_to_add = feature
+                overall_improvement = True
+            if BackwardSelection._time_exceeded(start_time, Tmax):
+                timeout = True
+                break
         if best_to_add is not None:
             selected_features.append(best_to_add)
-        return improvement, selected_features, scoreMax, indMax
+        return overall_improvement, selected_features, scoreMax, indMax, timeout
 
     def start(self, pid):
-        code = "SFBS"
+        code = "SBS " if self.strat == "sbs" else "SFBS"
         debut = time.time()
         self.path = os.path.join(self.path)
         createDirectory(self.path)
         print_out = ""
         np.random.seed(None)
         scoreMax, indMax = -np.inf, 0
-        # Generation (G) initialisation
-        G, same_since_improv, stop = 0, 0, False
-        # Main process iteration (generation iteration)
+        G, same_since_improv = 0, 0
         improvement = True
         while G < self.Gmax and improvement:
             instant = time.time()
-            improvement, self.selected_features, scoreMax, indMax = BackwardSelection.backward_forward_search(
-                train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target, pipeline=self.pipeline,
-                scoring=self.scoring, ratio=self.ratio, cv=self.cv, selected_features=self.selected_features,
-                scoreMax=scoreMax, indMax=indMax)
-            G = G + 1
+            if self.strat == "sbs":
+                improvement, self.selected_features, scoreMax, indMax, timeout = BackwardSelection.backward_step(
+                    train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target,
+                    pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv,
+                    selected_features=self.selected_features, scoreMax=scoreMax, indMax=indMax,
+                    start_time=debut, Tmax=self.Tmax
+                )
+            else:
+                improvement, self.selected_features, scoreMax, indMax, timeout = BackwardSelection.backward_forward_step(
+                    train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target,
+                    pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv,
+                    selected_features=self.selected_features, scoreMax=scoreMax, indMax=indMax,
+                    start_time=debut, Tmax=self.Tmax
+                )
+            G += 1
             if improvement:
                 same_since_improv = 0
             else:
@@ -85,11 +148,8 @@ class BackwardSelection(Heuristic):
             print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=scoreMax,
                                      mean=scoreMax, feats=len(self.selected_features), time_exe=time_instant,
                                      time_total=time_debut, g=G, cpt=same_since_improv, verbose=self.verbose) + "\n"
-            # If the time limit is exceeded, we stop
-            if time.time() - debut >= self.Tmax:
-                stop = True
-            # Write important information to file
-            if G % 10 == 0 or G == self.Gmax or stop or same_since_improv == self.D:
+            stop = timeout or self._time_exceeded(debut, self.Tmax)
+            if G % 10 == 0 or G == self.Gmax or stop or same_since_improv == self.D or (not improvement):
                 self.specifics(bestInd=indMax, g=G, t=timedelta(seconds=(time.time() - debut)),
                                last=G - same_since_improv, out=print_out)
                 print_out = ""

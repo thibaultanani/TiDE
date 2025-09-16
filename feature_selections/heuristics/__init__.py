@@ -6,5 +6,6 @@ from .population_based import Nmbde
 from .single_solution import ForwardSelection
 from .single_solution import BackwardSelection
 from .single_solution import LocalSearch
+from .single_solution import SimulatedAnnealing
 from .single_solution import Tabu
 from .other import Random

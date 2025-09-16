@@ -31,6 +31,6 @@ if __name__ == '__main__':
     # It is also possible to only use training data as input for cross validation
     cv = KFold(n_splits=5, shuffle=True, random_state=42)
     tide_kfold = Tide(name="n2", target='target', train=train_df, cv=cv, scoring=scoring, pipeline=pipeline,
-                      Tmax=60, verbose=True, output="test")
+                      Tmax=60, verbose=True, output="test", gamma=0)
     tide_kfold.start(pid=2)
     # The results are automatically saved in the output "test" directory

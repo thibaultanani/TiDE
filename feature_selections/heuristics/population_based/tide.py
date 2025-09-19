@@ -1,75 +1,103 @@
+from __future__ import annotations
+
 import os
 import random
 import time
+from datetime import timedelta
+from typing import Iterable, Sequence, Tuple
+
 import numpy as np
 from scipy.stats import beta
 from sklearn.base import ClassifierMixin
 
 from feature_selections.filters import Filter
-from feature_selections.heuristics.single_solution import ForwardSelection
 from feature_selections.heuristics.heuristic import Heuristic
-from datetime import timedelta
-from utility.utility import createDirectory, add, get_entropy, create_population, fitness
+from feature_selections.heuristics.single_solution import ForwardSelection
+from utility.utility import add, createDirectory, create_population, fitness, get_entropy
 
 
 class Tide(Heuristic):
-    """
-    Class that implements the new heuristic: tournament in differential evolution
+    """Tournament in Differential Evolution feature selection heuristic."""
 
-    Args:
-        gamma (float)       : The minimum threshold for the percentage of individuals to be selected by tournament
-        filter_init (bool)  : The choice of using filter method for initialisation (anova or correlation learning task)
-        sffs_init (bool)    : The choice of using sffs method for initialisation
-        entropy (float)     : Minimum threshold of diversity in the population to be reached before a reset
-    """
-    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None,
-                 N=None, Gmax=None, gamma=None, filter_init=None, sffs_init=None, entropy=None, suffix=None, cv=None,
-                 verbose=None, output=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
-                         verbose, output)
+    def __init__(
+        self,
+        name,
+        target,
+        pipeline,
+        train,
+        test=None,
+        drops=None,
+        scoring=None,
+        Tmax=None,
+        ratio=None,
+        N=None,
+        Gmax=None,
+        gamma=None,
+        filter_init=None,
+        sffs_init=None,
+        entropy=None,
+        suffix=None,
+        cv=None,
+        verbose=None,
+        output=None,
+    ):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
         self.gamma = gamma if gamma is not None else 0.8
         if filter_init is False:
-            self.filter_init, self.filter_str = False, ''
+            self.filter_init, self.filter_str = False, ""
         else:
             self.filter_init = True
             if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
-                self.filter_str = ' + ANOVA'
+                self.filter_str = " + ANOVA"
             else:
-                self.filter_str = ' + CORRELATION'
+                self.filter_str = " + CORRELATION"
         if sffs_init is False:
-            self.sffs_init, self.sffs_str = False, ''
+            self.sffs_init, self.sffs_str = False, ""
         else:
-            self.sffs_init, self.sffs_str = True, ' + SFFS'
+            self.sffs_init, self.sffs_str = True, " + SFFS"
         self.entropy = entropy if entropy is not None else 0.05
-        self.path = os.path.join(self.path, 'tide' + self.suffix)
+        self.path = os.path.join(self.path, "tide" + self.suffix)
         createDirectory(path=self.path)
 
-    def filter_initialisation(self):
+    def filter_initialisation(self) -> Sequence[int]:
+        """Initialise the population with a filter-based ranking of features."""
+
         debut = time.time()
         if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
-            sorted_features, f_results = Filter.anova_selection(df=self.train, target=self.target)
+            sorted_features, _ = Filter.anova_selection(df=self.train, target=self.target)
         else:
-            sorted_features, f_results = Filter.correlation_selection(df=self.train, target=self.target)
-        score, model, col, vector, G = -np.inf, 0, 0, 0, 0
-        k = [val for val in range(1, 101)]
-        num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in k]
+            sorted_features, _ = Filter.correlation_selection(df=self.train, target=self.target)
+        best_score, best_vector = -np.inf, [0] * self.D
+        num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in range(1, 101)]
         num_features = [val for val in num_features if val >= 1]
         num_features = list(dict.fromkeys(num_features))
-        while G < self.Gmax:
-            top_k_features = sorted_features[:num_features[G]]
-            G = G + 1
-            v = [0] * self.D
+        generation = 0
+        while generation < self.Gmax and generation < len(num_features):
+            top_k_features = sorted_features[:num_features[generation]]
+            generation += 1
+            candidate = [0] * self.D
             for var in top_k_features:
-                v[self.cols.get_loc(var)] = 1
-            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v, target=self.target,
-                        pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
-            if s > score:
-                score, vector = s, v
-            if time.time() - debut >= self.Tmax or G == len(num_features):
+                candidate[self.cols.get_loc(var)] = 1
+            score = fitness(
+                train=self.train,
+                test=self.test,
+                columns=self.cols,
+                ind=candidate,
+                target=self.target,
+                pipeline=self.pipeline,
+                scoring=self.scoring,
+                ratio=self.ratio,
+                cv=self.cv,
+            )[0]
+            if score > best_score:
+                best_score, best_vector = score, candidate
+            if time.time() - debut >= self.Tmax:
                 break
-        return vector
+        return best_vector
 
-    def forward_initialisation(self):
+    def forward_initialisation(self) -> Sequence[int]:
+        """Initialise the population with the forward selection heuristic."""
+
         debut = time.time()
         selected_features = []
         scoreMax, indMax, G = -np.inf, 0, 0
@@ -85,7 +113,9 @@ class Tide(Heuristic):
         return indMax
 
     @staticmethod
-    def mutate(P, n_ind, current, tbest):
+    def mutate(P: Sequence[Sequence[bool]], n_ind: int, current: int, tbest: int) -> list[int]:
+        """Mutate an individual following the TiDE mutation operator."""
+
         selected = np.random.choice([i for i in range(len(P)) if i != current and i != tbest], 2, replace=False)
         Xr1, Xr2, Xr3 = P[tbest], P[selected[0]], P[selected[1]]
         mutant = []
@@ -97,7 +127,9 @@ class Tide(Heuristic):
         return mutant
 
     @staticmethod
-    def crossover(n_ind, ind, mutant, cross_proba):
+    def crossover(n_ind: int, ind: Sequence[int], mutant: Sequence[int], cross_proba: float) -> np.ndarray:
+        """Perform a binomial crossover between parent and mutant."""
+
         cross_points = np.random.rand(n_ind) <= cross_proba
         child = np.where(cross_points, mutant, ind)
         jrand = random.randint(0, n_ind - 1)
@@ -105,19 +137,60 @@ class Tide(Heuristic):
         return child
 
     @staticmethod
-    def tournament(scores, entropy, gamma):
+    def tournament(scores: Sequence[float], entropy: float, gamma: float) -> int:
+        """Return the index of the best individual selected by tournament."""
+
         p = (1 - entropy) * (1 - gamma) + gamma
         nb_scores = max(2, int(len(scores) * p))
         selected = random.choices(scores, k=nb_scores)
         score_max = np.amax(selected)
         return scores.index(score_max)
 
-    def specifics(self, bestInd, bestTime, g, t, last, out):
+    def specifics(
+        self,
+        bestInd: Sequence[bool],
+        bestTime: timedelta,
+        g: int,
+        t: timedelta,
+        last: int,
+        out: str,
+    ) -> None:
+        """Serialise TiDE-specific metadata alongside the common heuristic summary."""
+
         name = "Tournament In Differential" + self.filter_str + self.sffs_str
         string = "Gamma: " + str(self.gamma) + os.linesep
         self.save(name, bestInd, bestTime, g, t, last, string, out)
 
-    def start(self, pid):
+    def _score_individual(self, ind: Sequence[bool]) -> float:
+        """Evaluate an individual and return its penalised score."""
+
+        return fitness(
+            train=self.train,
+            test=self.test,
+            columns=self.cols,
+            ind=ind,
+            target=self.target,
+            pipeline=self.pipeline,
+            scoring=self.scoring,
+            ratio=self.ratio,
+            cv=self.cv,
+        )[0]
+
+    def _score_population(self, population: Iterable[Sequence[bool]]) -> list[float]:
+        """Vectorised scoring utility for a whole population."""
+
+        return [self._score_individual(ind) for ind in population]
+
+    def start(self, pid: int) -> Tuple[float, Sequence[bool], Sequence[str], timedelta, object, int, str, int, int]:
+        """Run the TiDE optimisation loop.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the best score, individual, selected subset and
+            bookkeeping information consumed by the experiment harness.
+        """
+
         code = "TIDE"
         debut = time.time()
         self.path = os.path.join(self.path)
@@ -130,13 +203,18 @@ class Tide(Heuristic):
         G, same1, same2, stop = 0, 0, 0, False
         # Population P initialisation
         P = create_population(inds=self.N, size=self.D)
-        r1, r2 = None, None
-        if self.filter_init:
-            r1, r2 = self.filter_initialisation(), self.forward_initialisation()
-            P[0], P[1] = r1, r2
+        next_slot = 0
+        r_filter, r_forward = None, None
+        if self.filter_init and next_slot < self.N:
+            r_filter = self.filter_initialisation()
+            P[next_slot] = r_filter
+            next_slot += 1
+        if self.sffs_init and next_slot < self.N:
+            r_forward = self.forward_initialisation()
+            P[next_slot] = r_forward
+            next_slot += 1
         # Evaluates population
-        scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
+        scores = self._score_population(P)
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
         scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, debut
         mean_scores = float(np.mean(scores))
@@ -166,8 +244,7 @@ class Tide(Heuristic):
                 if all(x == y for x, y in zip(P[i], Ui)):
                     score_ = scores[i]
                 else:
-                    score_ = fitness(train=self.train, test=self.test, columns=self.cols, ind=Ui, target=self.target,
-                                     pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
+                    score_ = self._score_individual(Ui)
                 # Comparison between Xi and Ui
                 if scores[i] <= score_:
                     # Update population
@@ -190,12 +267,16 @@ class Tide(Heuristic):
             if entropy < self.entropy:
                 same1 = 0
                 P = create_population(inds=self.N, size=self.D)
-                if self.filter_init:
-                    P[0], P[1], P[2] = r1, r2, indMax
-                else:
-                    P[0] = indMax
-                scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]for ind in P]
+                inserted = 0
+                if r_filter is not None and inserted < self.N:
+                    P[inserted] = r_filter
+                    inserted += 1
+                if r_forward is not None and inserted < self.N:
+                    P[inserted] = r_forward
+                    inserted += 1
+                if inserted < self.N:
+                    P[inserted] = indMax
+                scores = self._score_population(P)
                 bestScore, bestSubset, bestInd = add(scores=scores[:self.N], inds=np.asarray(P[:self.N]),
                                                      cols=self.cols)
             # If the time limit is exceeded, we stop
@@ -203,8 +284,14 @@ class Tide(Heuristic):
                 stop = True
             # Write important information to file
             if G % 10 == 0 or G == self.Gmax or stop:
-                self.specifics(bestInd=indMax, bestTime=timeMax, g=G,
-                               t=timedelta(seconds=(time.time() - debut)), last=G - same2, out=print_out)
+                self.specifics(
+                    bestInd=indMax,
+                    bestTime=timeMax,
+                    g=G,
+                    t=timedelta(seconds=(time.time() - debut)),
+                    last=G - same2,
+                    out=print_out,
+                )
                 print_out = ""
                 if stop:
                     break

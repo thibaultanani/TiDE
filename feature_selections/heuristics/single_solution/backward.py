@@ -1,158 +1,193 @@
-import os
+"""Sequential backward selection heuristics."""
+
+from __future__ import annotations
+
 import time
+from datetime import timedelta
+from pathlib import Path
+from typing import List, Sequence, Tuple
+
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from datetime import timedelta
 from utility.utility import createDirectory, fitness
 
 
 class BackwardSelection(Heuristic):
-    """
-    Implements Sequential Backward Selection (SBS) and Sequential Floating Backward Selection (SFBS).
-    Choose via `strat`: "sbs" or "sfbs".
-    """
+    """Sequential (floating) backward selection."""
 
-    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, suffix=None, cv=None, verbose=None, output=None, strat=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose,
-                         output)
-        self.selected_features = self.cols.tolist()
-        self.path = os.path.join(self.path, 'backward_selection' + self.suffix)
-        createDirectory(path=self.path)
+    def __init__(
+        self,
+        name,
+        target,
+        pipeline,
+        train,
+        test=None,
+        drops=None,
+        scoring=None,
+        Tmax=None,
+        ratio=None,
+        N=None,
+        Gmax=None,
+        suffix=None,
+        cv=None,
+        verbose=None,
+        output=None,
+        strat=None,
+    ) -> None:
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        self.selected_features: List[str] = self.cols.tolist()
         self.strat = (strat or "sfbs").strip().lower()
         if self.strat not in {"sbs", "sfbs"}:
             raise ValueError(f"Unknown strat '{strat}'. Expected 'sbs' or 'sfbs'.")
-
-    def specifics(self, bestInd, bestTime, g, t, last, out):
-        label = "Sequential Backward Selection (SBS)" if self.strat == "sbs" else "Sequential Floating Backward Selection (SFBS)"
-        self.save(label, bestInd, bestTime, g, t, last, "", out)
+        self.path = Path(self.path) / ("backward_selection" + self.suffix)
+        createDirectory(path=self.path)
 
     @staticmethod
-    def _time_exceeded(start_time, Tmax):
-        if Tmax is None:
-            return False
-        return (time.time() - start_time) >= Tmax
+    def _time_exceeded(start_time: float, Tmax: float | None) -> bool:
+        return Tmax is not None and (time.time() - start_time) >= Tmax
 
-    @staticmethod
-    def backward_step(train, test, cols, D, target, pipeline, scoring, ratio, cv,
-                      selected_features, scoreMax, indMax, start_time, Tmax):
-        """
-        One SBS step (remove only). Returns (improvement, selected_features, scoreMax, indMax, timeout).
-        Evaluates candidates and can exit early if time limit exceeded.
-        """
+    def _evaluate_candidate(self, feature_set: Sequence[str]) -> Tuple[float, np.ndarray]:
+        candidate = np.zeros(self.D, dtype=int)
+        for var in feature_set:
+            candidate[self.cols.get_loc(var)] = 1
+        score = fitness(
+            train=self.train,
+            test=self.test,
+            columns=self.cols,
+            ind=candidate,
+            target=self.target,
+            pipeline=self.pipeline,
+            scoring=self.scoring,
+            ratio=self.ratio,
+            cv=self.cv,
+        )[0]
+        return score, candidate
+
+    def _backward_step(
+        self,
+        start_time: float,
+        scoreMax: float,
+        indMax: np.ndarray,
+    ) -> Tuple[bool, List[str], float, np.ndarray, bool]:
         improvement = False
         timeout = False
         best_to_remove = None
-        for feature in list(selected_features):
-            if BackwardSelection._time_exceeded(start_time, Tmax):
+        for feature in list(self.selected_features):
+            if self._time_exceeded(start_time, self.Tmax):
                 timeout = True
                 break
-            candidate_features = [f for f in selected_features if f != feature]
-            candidate = np.zeros(D, dtype=int)
-            for var in candidate_features:
-                candidate[cols.get_loc(var)] = 1
-            if BackwardSelection._time_exceeded(start_time, Tmax):
-                timeout = True
-                break
-            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target,
-                            pipeline=pipeline, scoring=scoring, ratio=ratio, cv=cv)[0]
+            candidate_features = [f for f in self.selected_features if f != feature]
+            score, candidate = self._evaluate_candidate(candidate_features)
             if score > scoreMax:
                 scoreMax, indMax = score, candidate
                 best_to_remove = feature
                 improvement = True
-            if BackwardSelection._time_exceeded(start_time, Tmax):
+            if self._time_exceeded(start_time, self.Tmax):
                 timeout = True
                 break
         if best_to_remove is not None:
-            selected_features.remove(best_to_remove)
-        return improvement, selected_features, scoreMax, indMax, timeout
+            self.selected_features.remove(best_to_remove)
+        return improvement, self.selected_features, scoreMax, indMax, timeout
 
-    @staticmethod
-    def backward_forward_step(train, test, cols, D, target, pipeline, scoring, ratio, cv,
-                              selected_features, scoreMax, indMax, start_time, Tmax):
-        """
-        One SFBS step (remove then conditional addition). Returns (improvement, selected_features, scoreMax, indMax, timeout).
-        Time checks are performed inside both backward and forward phases.
-        """
+    def _forward_step(
+        self,
+        start_time: float,
+        scoreMax: float,
+        indMax: np.ndarray,
+    ) -> Tuple[bool, List[str], float, np.ndarray, bool]:
+        improvement = False
         timeout = False
-        overall_improvement = False
-        b_impr, selected_features, scoreMax, indMax, timeout = BackwardSelection.backward_step(
-            train, test, cols, D, target, pipeline, scoring, ratio, cv,
-            selected_features, scoreMax, indMax,
-            start_time, Tmax
-        )
-        overall_improvement = overall_improvement or b_impr
-        if timeout:
-            return overall_improvement, selected_features, scoreMax, indMax, True
         best_to_add = None
-        for feature in cols:
-            if feature in selected_features:
+        for feature in self.cols:
+            if feature in self.selected_features:
                 continue
-            if BackwardSelection._time_exceeded(start_time, Tmax):
+            if self._time_exceeded(start_time, self.Tmax):
                 timeout = True
                 break
-            candidate_features = selected_features + [feature]
-            candidate = np.zeros(D, dtype=int)
-            for var in candidate_features:
-                candidate[cols.get_loc(var)] = 1
-            if BackwardSelection._time_exceeded(start_time, Tmax):
-                timeout = True
-                break
-            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target,
-                            pipeline=pipeline, scoring=scoring, ratio=ratio, cv=cv)[0]
+            candidate_features = self.selected_features + [feature]
+            score, candidate = self._evaluate_candidate(candidate_features)
             if score > scoreMax:
                 scoreMax, indMax = score, candidate
                 best_to_add = feature
-                overall_improvement = True
-            if BackwardSelection._time_exceeded(start_time, Tmax):
+                improvement = True
+            if self._time_exceeded(start_time, self.Tmax):
                 timeout = True
                 break
         if best_to_add is not None:
-            selected_features.append(best_to_add)
-        return overall_improvement, selected_features, scoreMax, indMax, timeout
+            self.selected_features.append(best_to_add)
+        return improvement, self.selected_features, scoreMax, indMax, timeout
 
-    def start(self, pid):
+    def specifics(self, bestInd, bestTime, g, t, last, out) -> None:  # noqa: D401
+        label = (
+            "Sequential Backward Selection (SBS)"
+            if self.strat == "sbs"
+            else "Sequential Floating Backward Selection (SFBS)"
+        )
+        self.save(label, bestInd, bestTime, g, t, last, "", out)
+
+    def start(self, pid: int):
+        """Execute the backward (floating) selection routine."""
+
         code = "SBS " if self.strat == "sbs" else "SFBS"
         debut = time.time()
-        self.path = os.path.join(self.path)
-        createDirectory(self.path)
+        createDirectory(path=self.path)
         print_out = ""
         np.random.seed(None)
-        scoreMax, indMax, time_debut = -np.inf, 0, debut
-        G, same_since_improv = 0, 0
+
+        scoreMax, indMax = -np.inf, np.ones(self.D, dtype=int)
+        G = 0
+        same_since_improv = 0
         improvement = True
+
         while G < self.Gmax and improvement:
             instant = time.time()
-            if self.strat == "sbs":
-                improvement, self.selected_features, scoreMax, indMax, timeout = BackwardSelection.backward_step(
-                    train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target,
-                    pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv,
-                    selected_features=self.selected_features, scoreMax=scoreMax, indMax=indMax,
-                    start_time=debut, Tmax=self.Tmax
-                )
-            else:
-                improvement, self.selected_features, scoreMax, indMax, timeout = BackwardSelection.backward_forward_step(
-                    train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target,
-                    pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv,
-                    selected_features=self.selected_features, scoreMax=scoreMax, indMax=indMax,
-                    start_time=debut, Tmax=self.Tmax
-                )
+            improvement, _, scoreMax, indMax, timeout = self._backward_step(debut, scoreMax, indMax)
+            if not timeout and self.strat == "sfbs" and self.selected_features:
+                forward_improv, _, scoreMax, indMax, timeout = self._forward_step(debut, scoreMax, indMax)
+                improvement = improvement or forward_improv
             G += 1
-            if improvement:
-                same_since_improv = 0
-            else:
-                same_since_improv += 1
+            same_since_improv = 0 if improvement else same_since_improv + 1
             time_instant = timedelta(seconds=(time.time() - instant))
-            time_debut = timedelta(seconds=(time.time() - debut))
-            print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=scoreMax,
-                                     mean=scoreMax, feats=len(self.selected_features), time_exe=time_instant,
-                                     time_total=time_debut, g=G, cpt=same_since_improv, verbose=self.verbose) + "\n"
+            time_total = timedelta(seconds=(time.time() - debut))
+            print_out = self.sprint_(
+                print_out=print_out,
+                name=code,
+                pid=pid,
+                maxi=scoreMax,
+                best=scoreMax,
+                mean=scoreMax,
+                feats=len(self.selected_features),
+                time_exe=time_instant,
+                time_total=time_total,
+                g=G,
+                cpt=same_since_improv,
+                verbose=self.verbose,
+            ) + "\n"
             stop = timeout or self._time_exceeded(debut, self.Tmax)
             if G % 10 == 0 or G == self.Gmax or stop or same_since_improv == self.D or (not improvement):
-                self.specifics(bestInd=indMax, bestTime=time_debut, g=G, t=timedelta(seconds=(time.time() - debut)),
-                               last=G - same_since_improv, out=print_out)
+                self.specifics(
+                    bestInd=indMax,
+                    bestTime=time_total,
+                    g=G,
+                    t=timedelta(seconds=(time.time() - debut)),
+                    last=G - same_since_improv,
+                    out=print_out,
+                )
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, self.selected_features, time_debut, self.pipeline, pid, code, G - same_since_improv, G
+
+        best_time = timedelta(seconds=(time.time() - debut))
+        return (
+            scoreMax,
+            indMax,
+            self.selected_features,
+            best_time,
+            self.pipeline,
+            pid,
+            code,
+            G - same_since_improv,
+            G,
+        )
+

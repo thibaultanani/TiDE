@@ -154,4 +154,4 @@ class ForwardSelection(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, self.selected_features, self.pipeline, time_debut, pid, code, G - same_since_improv, G
+        return scoreMax, indMax, self.selected_features, time_debut, self.pipeline, time_debut, pid, code, G - same_since_improv, G

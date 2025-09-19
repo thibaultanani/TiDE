@@ -24,9 +24,9 @@ class BackwardSelection(Heuristic):
         if self.strat not in {"sbs", "sfbs"}:
             raise ValueError(f"Unknown strat '{strat}'. Expected 'sbs' or 'sfbs'.")
 
-    def specifics(self, bestInd, g, t, last, out):
+    def specifics(self, bestInd, bestTime, g, t, last, out):
         label = "Sequential Backward Selection (SBS)" if self.strat == "sbs" else "Sequential Floating Backward Selection (SFBS)"
-        self.save(label, bestInd, g, t, last, "", out)
+        self.save(label, bestInd, bestTime, g, t, last, "", out)
 
     @staticmethod
     def _time_exceeded(start_time, Tmax):
@@ -119,7 +119,7 @@ class BackwardSelection(Heuristic):
         createDirectory(self.path)
         print_out = ""
         np.random.seed(None)
-        scoreMax, indMax = -np.inf, 0
+        scoreMax, indMax, time_debut = -np.inf, 0, debut
         G, same_since_improv = 0, 0
         improvement = True
         while G < self.Gmax and improvement:
@@ -150,9 +150,9 @@ class BackwardSelection(Heuristic):
                                      time_total=time_debut, g=G, cpt=same_since_improv, verbose=self.verbose) + "\n"
             stop = timeout or self._time_exceeded(debut, self.Tmax)
             if G % 10 == 0 or G == self.Gmax or stop or same_since_improv == self.D or (not improvement):
-                self.specifics(bestInd=indMax, g=G, t=timedelta(seconds=(time.time() - debut)),
+                self.specifics(bestInd=indMax, bestTime=time_debut, g=G, t=timedelta(seconds=(time.time() - debut)),
                                last=G - same_since_improv, out=print_out)
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, self.selected_features, self.pipeline, pid, code, G - same_since_improv, G
+        return scoreMax, indMax, self.selected_features, time_debut, self.pipeline, pid, code, G - same_since_improv, G

@@ -78,9 +78,9 @@ class SimulatedAnnealing(Heuristic):
             T0, Tf = Tf, T0
         return T0, Tf
 
-    def specifics(self, bestInd, g, t, last, out):
+    def specifics(self, bestInd, bestTime, g, t, last, out):
         string = "p0: " + str(self.p0) + os.linesep + "pf: " + str(self.pf) + os.linesep
-        self.save("Simulated Annealing", bestInd, g, t, last, string, out)
+        self.save("Simulated Annealing", bestInd, bestTime, g, t, last, string, out)
 
     def start(self, pid):
         debut = time.time()
@@ -93,6 +93,7 @@ class SimulatedAnnealing(Heuristic):
         score_cur = self._eval(ind_cur)
         ind_best = ind_cur.copy()
         score_best = score_cur
+        time_best = debut
         calib_samples = int(min(5 * (self.N or 20), 200))
         T0, Tf = self._calibrate_temperatures(ind_cur, score_cur, calib_samples)
         G, since_improv = 0, 0
@@ -126,6 +127,7 @@ class SimulatedAnnealing(Heuristic):
                     if score_cur > score_best:
                         ind_best = ind_cur.copy()
                         score_best = score_cur
+                        time_best = timedelta(seconds=(time.time() - debut))
                         improved_this_iter = True
                 if self._time_exceeded(debut, self.Tmax):
                     break
@@ -141,13 +143,14 @@ class SimulatedAnnealing(Heuristic):
                                      g=G, cpt=since_improv, verbose=self.verbose) + "\n"
             stop = self._time_exceeded(debut, self.Tmax)
             if (G % 10 == 0) or stop or (G == Gmax) or (since_improv == self.D):
-                self.specifics(bestInd=ind_best, g=G, t=time_total, last=G - since_improv, out=print_out)
+                self.specifics(bestInd=ind_best, bestTime=time_best, g=G, t=time_total, last=G - since_improv,
+                               out=print_out)
                 print_out = ""
                 saved = True
                 if stop:
                     break
         if not saved:
-            self.specifics(bestInd=ind_best, g=G, t=timedelta(seconds=(time.time() - debut)), last=G - since_improv,
-                           out=print_out)
+            self.specifics(bestInd=ind_best, bestTime=time_best, g=G, t=timedelta(seconds=(time.time() - debut)),
+                           last=G - since_improv, out=print_out)
         selected_features = [self.cols[i] for i in range(self.D) if ind_best[i] == 1]
-        return score_best, ind_best, selected_features, self.pipeline, pid, code, G - since_improv, G
+        return score_best, ind_best, selected_features, time_best, self.pipeline, pid, code, G - since_improv, G

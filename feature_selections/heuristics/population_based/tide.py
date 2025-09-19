@@ -112,10 +112,10 @@ class Tide(Heuristic):
         score_max = np.amax(selected)
         return scores.index(score_max)
 
-    def specifics(self, bestInd, g, t, last, out):
+    def specifics(self, bestInd, bestTime, g, t, last, out):
         name = "Tournament In Differential" + self.filter_str + self.sffs_str
         string = "Gamma: " + str(self.gamma) + os.linesep
-        self.save(name, bestInd, g, t, last, string, out)
+        self.save(name, bestInd, bestTime, g, t, last, string, out)
 
     def start(self, pid):
         code = "TIDE"
@@ -138,7 +138,7 @@ class Tide(Heuristic):
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
                           pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-        scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
+        scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, debut
         mean_scores = float(np.mean(scores))
         time_instant = timedelta(seconds=(time.time() - instant))
         time_debut = timedelta(seconds=(time.time() - debut))
@@ -182,7 +182,7 @@ class Tide(Heuristic):
             # Update which individual is the best
             if bestScore > scoreMax:
                 same1, same2 = 0, 0
-                scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
+                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_debut
             print_out = self.pprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
                                      time_total=time_debut, entropy=entropy, g=G, cpt=same2, verbose=self.verbose) + "\n"
@@ -203,9 +203,9 @@ class Tide(Heuristic):
                 stop = True
             # Write important information to file
             if G % 10 == 0 or G == self.Gmax or stop:
-                self.specifics(bestInd=indMax, g=G, t=timedelta(seconds=(time.time() - debut)), last=G - same2,
-                               out=print_out)
+                self.specifics(bestInd=indMax, bestTime=timeMax, g=G,
+                               t=timedelta(seconds=(time.time() - debut)), last=G - same2, out=print_out)
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same2, G

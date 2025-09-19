@@ -45,7 +45,7 @@ class Heuristic(FeatureSelection):
             print(display)
         return print_out
 
-    def save(self, name, bestInd, g, t, last, specifics, out):
+    def save(self, name, bestInd, bestTime, g, t, last, specifics, out):
         a = os.path.join(os.path.join(self.path, 'results.txt'))
         with open(a, "w") as f:
             try:
@@ -76,6 +76,7 @@ class Heuristic(FeatureSelection):
                     f"Generations Performed: {g}" + os.linesep +
                     f"Latest Improvement: {last}" + os.linesep +
                     f"Latest Improvement (Ratio): {1 - (last / g)}" + os.linesep +
+                    f"Latest Improvement (Time): {round(bestTime.total_seconds())} ({bestTime})" + os.linesep +
                     f"Cross-validation strategy: {str(self.cv)}" + os.linesep +
                     specifics +
                     f"Method: {method}" + os.linesep +

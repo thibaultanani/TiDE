@@ -71,12 +71,12 @@ class Pbil(Heuristic):
                     pop[i][j] = 0
         return pop
 
-    def specifics(self, probas, bestInd, g, t, last, out):
+    def specifics(self, probas, bestInd, bestTime, g, t, last, out):
         string = "Learning Rate: " + str(self.LR) + os.linesep + \
                  "Mutation Probabilities: " + str(self.MP) + os.linesep + \
                  "Mutation Shift: " + str(self.MS) + os.linesep + \
                  "Probabilities Vector: " + str(['%.3f' % x for x in probas]) + os.linesep
-        self.save("Population Based Incremental Learning", bestInd, g, t, last, string, out)
+        self.save("Population Based Incremental Learning", bestInd, bestTime, g, t, last, string, out)
 
     def start(self, pid):
         code = "PBIL"
@@ -85,7 +85,7 @@ class Pbil(Heuristic):
         createDirectory(path=self.path)
         print_out = ""
         np.random.seed(None)
-        scoreMax, subsetMax, indMax = -np.inf, 0, 0
+        scoreMax, subsetMax, indMax, timeMax = -np.inf, 0, 0, debut
         # Generation (G) initialisation
         G, same1, same2, time_debut, stop = 0, 0, 0, 0, False
         # Initialize probabilities vector (0.5 to select each features)
@@ -109,7 +109,7 @@ class Pbil(Heuristic):
             # Update which individual is the best
             if bestScore > scoreMax:
                 same1, same2 = 0, 0
-                scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
+                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_debut
                 saves_proba = copy(probas)
             print_out = self.pprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
                                      mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
@@ -119,7 +119,7 @@ class Pbil(Heuristic):
                 stop = True
             # Write important information to file
             if G % 10 == 0 or G == self.Gmax or stop:
-                self.specifics(probas=saves_proba, bestInd=indMax, g=G,
+                self.specifics(probas=saves_proba, bestInd=indMax, bestTime=timeMax, g=G,
                                t=timedelta(seconds=(time.time() - debut)), last=G - same2, out=print_out)
                 print_out = ""
                 if stop:
@@ -133,4 +133,4 @@ class Pbil(Heuristic):
             if entropy < self.entropy:
                 same1 = 0
                 probas = self.create_probas(size=self.D)
-        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same2, G

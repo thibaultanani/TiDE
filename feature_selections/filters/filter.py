@@ -54,7 +54,7 @@ class Filter(FeatureSelection):
             print(display)
         return print_out
 
-    def save(self, name, bestInd, scores, g, t, last, out):
+    def save(self, name, bestInd, bestTime, scores, g, t, last, out):
         a = os.path.join(os.path.join(self.path, 'results.txt'))
         with open(a, "w") as f:
             try:
@@ -84,6 +84,7 @@ class Filter(FeatureSelection):
                     f"Iterations Performed: {g}" + os.linesep +
                     f"Latest Improvement: {last}" + os.linesep +
                     f"Latest Improvement (Ratio): {1 - (last / g)}" + os.linesep +
+                    f"Latest Improvement (Time): {round(bestTime.total_seconds())} ({bestTime})" + os.linesep +
                     f"Cross-validation strategy: {str(self.cv)}" + os.linesep +
                     f"Method: {method}" + os.linesep +
                     f"Best Score: {score_train}" + os.linesep +
@@ -137,46 +138,31 @@ class Filter(FeatureSelection):
 
     @staticmethod
     def mrmr_selection(df, target, is_quantitative=False):
-        # --- Extraction / cast numpy
         X = df.drop(columns=[target])
         y = df[target].to_numpy()
-        # S'assure que X est numérique (si besoin, adapter en amont)
         X = X.astype(float)
         n, p = X.shape
         cols = X.columns.to_list()
-        # --- Standardisation colonne par colonne (ddof=1, comme pandas.corr)
-        # Xc: centrée ; std: écart-type échantillon ; Z: variance unitaire
         Xv = X.to_numpy(copy=False)
         Xc = Xv - np.nanmean(Xv, axis=0, keepdims=True)
-        # Remplace NaN par 0 après centrage (optionnel selon tes données)
         Xc = np.nan_to_num(Xc, copy=False)
-        # std échantillon (ddof=1) ; évite division par 0
         stdX = Xc.std(axis=0, ddof=1)
         stdX[stdX == 0] = 1.0
-        Z = Xc / stdX  # (n, p)
-        # --- Relevance ∈ [0,1]
+        Z = Xc / stdX
         if is_quantitative:
-            # Corrélation vectorisée r(Xj, y) puis min-max → [0,1]
             yc = y.astype(float) - float(np.mean(y))
-            # Si variance(y)==0
             denom_y = np.sqrt(np.sum((yc ** 2)))
             if denom_y == 0:
                 r = np.zeros(p, dtype=float)
             else:
-                # corr(Xj, y) = (Xc_j · yc) / (||Xc_j|| * ||yc||)
-                # comme Z_j = Xc_j / stdX_j, et stdX_j^2 = sum(Xc_j^2)/(n-1),
-                # alors corr = (Z^T @ (yc/std_y)) / (n-1)
-                # On reste sur une forme simple et stable :
                 r = (Xc.T @ yc) / (stdX * denom_y)  # (p,)
             r = np.nan_to_num(r, nan=0.0)
-            # min-max scaling
             r_min, r_max = float(np.min(r)), float(np.max(r))
             if r_max > r_min:
                 relevance = (r - r_min) / (r_max - r_min)
             else:
                 relevance = np.zeros_like(r)
         else:
-            # f_classif déjà vectorisé
             f_values, _ = f_classif(Xv, y)
             f_values = np.nan_to_num(f_values, nan=0.0, posinf=0.0, neginf=0.0)
             f_min, f_max = float(np.min(f_values)), float(np.max(f_values))
@@ -184,39 +170,27 @@ class Filter(FeatureSelection):
                 relevance = (f_values - f_min) / (f_max - f_min)
             else:
                 relevance = np.zeros_like(f_values)
-        # --- Sélection gloutonne avec redondance incrémentale
         selected = np.zeros(p, dtype=bool)
-        red_sum = np.zeros(p, dtype=float)  # somme des redondances (transformées en [0,1]) accumulées
+        red_sum = np.zeros(p, dtype=float)
         S = []
         mrmr_scores_list = {}
-        # 1) Première feature = max relevance
         j0 = int(np.argmax(relevance))
         S.append(cols[j0])
         selected[j0] = True
         mrmr_scores_list[cols[j0]] = float(relevance[j0])
-        # 2) Boucle : à chaque étape, on met à jour la redondance via un produit Z^T @ z_s
-        #    puis on choisit la feature maximisant relevance - (red_sum / t)
-        #    NB: corr en [-1,1] → [0,1] via (r+1)/2, cumulée dans red_sum
-        ZT = Z.T  # (p, n) pour éviter des transpositions répétées
-        for _t in range(1, p):  # on produit l'ordre complet (tu as demandé d'ignorer l'arrêt à k)
-            # Dernière sélection s
+        ZT = Z.T
+        for _t in range(1, p):
             s = int(np.where(selected)[0][-1])
-            # Corrélation de toutes les variables avec Z[:, s] (coût O(n p))
             z_s = Z[:, s]  # (n,)
-            corr_vec = (ZT @ z_s) / (n - 1.0)  # (p,) corrélation de Pearson (ddof=1)
-            # Transforme vers [0,1] et cumule
+            corr_vec = (ZT @ z_s) / (n - 1.0)
             red_sum += (np.clip(corr_vec, -1.0, 1.0) + 1.0) * 0.5
-            # Score mRMR courant pour les candidates
             t_cur = np.count_nonzero(selected)
             scores = relevance - (red_sum / t_cur)
-            # Invalide les déjà sélectionnées
             scores[selected] = -np.inf
-            # Prochaine feature
             j_next = int(np.argmax(scores))
             S.append(cols[j_next])
             selected[j_next] = True
             mrmr_scores_list[cols[j_next]] = float(scores[j_next])
-            # (Optionnel) petit early-exit si tout est sélectionné
             if t_cur + 1 == p:
                 break
         return S, mrmr_scores_list
@@ -288,7 +262,7 @@ class Filter(FeatureSelection):
         createDirectory(path=self.path)
         print_out = ""
         np.random.seed(None)
-        score, col, vector, s = -np.inf, [], [], -np.inf
+        score, col, vector, s, seconds = -np.inf, [], [], -np.inf, debut
         G, same, stop = 0, 0, False
         try:
             sorted_features, filter_scores = self.func(df=self.train, target=self.target)
@@ -309,21 +283,21 @@ class Filter(FeatureSelection):
                 v[self.cols.get_loc(var)] = 1
             s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v, target=self.target,
                         pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
-            if s > score:
-                same = 0
-                score, vector = s, v
-                col = [self.cols[i] for i in range(len(self.cols)) if v[i]]
             time_instant = timedelta(seconds=(time.time() - instant))
             time_debut = timedelta(seconds=(time.time() - debut))
+            if s > score:
+                same = 0
+                score, vector, seconds = s, v, time_debut
+                col = [self.cols[i] for i in range(len(self.cols)) if v[i]]
             print_out = self.print_(print_out=print_out, name=self.v_name, pid=pid, maxi=score, best=s, mean=s,
                                     feats=len(col), time_exe=time_instant, time_total=time_debut, g=G, cpt=same,
                                     verbose=self.verbose) + "\n"
             if time.time() - debut >= self.Tmax or G == len(num_features):
                 stop = True
             if G % 10 == 0 or G == self.Gmax or stop:
-                self.save(name=self.method, bestInd=vector, scores=filter_scores, g=G,
+                self.save(name=self.method, bestInd=vector, bestTime=seconds, scores=filter_scores, g=G,
                           t=timedelta(seconds=(time.time() - debut)), last=G - same, out=print_out)
                 print_out = ""
                 if stop:
                     break
-        return score, vector, col, self.pipeline, pid, self.v_name, G - same, G
+        return score, vector, col, seconds, self.pipeline, pid, self.v_name, G - same, G

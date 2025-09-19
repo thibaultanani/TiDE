@@ -77,13 +77,14 @@ class Nmbde(Heuristic):
         child[jrand] = mutant[jrand]
         return child.tolist()
 
-    def specifics(self, bestInd, g, t, last, out):
-        string = (f"Fmax: {self.Fmax}\n"
-                  f"Fmin: {self.Fmin}\n"
-                  f"Crossover rate: {self.CR}\n"
-                  f"Bandwidth b: {self.b}\n")
+    def specifics(self, bestInd, bestTime, g, t, last, out):
+        string = (f"Fmax: {self.Fmax}" + os.linesep +
+                  f"Fmin: {self.Fmin}" + os.linesep +
+                  f"Crossover rate: {self.CR}" + os.linesep +
+                  f"Bandwidth b: {self.b}") + os.linesep
         label = "DE/best/1" if self.strat else "DE/rand/1"
-        self.save(f"Novel Modified Binary Differential Evolution ({label})", bestInd, g, t, last, string, out)
+        self.save(f"Novel Modified Binary Differential Evolution ({label})", bestInd, bestTime, g, t, last,
+                  string, out)
 
     def start(self, pid):
         code = "MBDE"
@@ -99,8 +100,7 @@ class Nmbde(Heuristic):
         scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
                           pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-        scoreMax, subsetMax, indMax = bestScore, bestSubset, bestInd
-
+        scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, debut
         # main loop
         while G < self.Gmax:
             # update F based on elapsed time
@@ -137,7 +137,7 @@ class Nmbde(Heuristic):
 
             if bestScore > scoreMax:
                 same1, same2 = 0, 0
-                scoreMax, subsetMax = bestScore, subsetMax
+                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_total
 
             print_out = self.pprint_(print_out=print_out, name=code, pid=pid,
                                      maxi=scoreMax, best=bestScore, mean=mean_scores,
@@ -156,11 +156,10 @@ class Nmbde(Heuristic):
 
             # periodic save
             if G % 10 == 0 or G == self.Gmax or (time.time() - debut) >= self.Tmax:
-                self.specifics(bestInd=indMax, g=G,
-                               t=timedelta(seconds=(time.time() - debut)),
+                self.specifics(bestInd=indMax, bestTime=timeMax, g=G, t=timedelta(seconds=(time.time() - debut)),
                                last=G - same2, out=print_out)
                 print_out = ""
             if (time.time() - debut) >= self.Tmax:
                 break
 
-        return scoreMax, indMax, subsetMax, self.pipeline, pid, code, G - same2, G
+        return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same2, G

@@ -7,12 +7,11 @@ import random
 import time
 from copy import copy
 from datetime import timedelta
-from pathlib import Path
 from typing import Sequence
 
 import numpy as np
 
-from feature_selections.heuristics.heuristic import Heuristic
+from feature_selections.heuristics.heuristic import Heuristic, PopulationState
 from utility.utility import add, createDirectory, get_entropy
 
 
@@ -48,7 +47,7 @@ class Pbil(Heuristic):
         self.MS = MS
         self.n = n if n is not None else int(self.N * 0.15)
         self.entropy = entropy
-        self.path = Path(self.path) / ("pbil" + self.suffix)
+        self.path = self.path / ("pbil" + self.suffix)
         createDirectory(path=self.path)
 
     @staticmethod
@@ -112,62 +111,55 @@ class Pbil(Heuristic):
         """Run the PBIL loop until the generation or time budget is reached."""
 
         code = "PBIL"
-        debut = time.time()
+        start_time = time.time()
         createDirectory(path=self.path)
-        print_out = ""
         np.random.seed(None)
 
         probas = self.create_probas(size=self.D)
         saved_proba = copy(probas)
-        scoreMax, subsetMax, indMax, timeMax = -np.inf, [], [], timedelta(seconds=0)
-        G = 0
-        same = 0
+        state = PopulationState.from_best(float("-inf"), [], np.zeros(self.D, dtype=bool))
 
-        while G < self.Gmax:
+        while state.generation < self.Gmax:
             instant = time.time()
             population = self.sample_population(inds=self.N, size=self.D, probas=probas)
             scores = [self.score(ind) for ind in population]
             bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
-            G += 1
-            same += 1
+            state.update_current(bestScore, bestSubset, bestInd)
+            state.advance()
             mean_scores = float(np.mean(scores))
             time_instant = timedelta(seconds=(time.time() - instant))
-            time_total = timedelta(seconds=(time.time() - debut))
+            time_total = self.elapsed_since(start_time)
             entropy = get_entropy(pop=population)
 
-            if bestScore > scoreMax:
-                same = 0
-                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_total
+            previous_best = state.tracker.score
+            state.tracker.observe(bestScore, bestSubset, bestInd, time_total)
+            if state.tracker.score > previous_best:
                 saved_proba = copy(probas)
 
-            print_out = self.pprint_(
-                print_out=print_out,
-                name=code,
+            self.log_generation(
+                state=state,
+                code=code,
                 pid=pid,
-                maxi=scoreMax,
+                maxi=state.tracker.score,
                 best=bestScore,
                 mean=mean_scores,
-                feats=len(subsetMax),
+                feats=len(state.tracker.subset),
                 time_exe=time_instant,
                 time_total=time_total,
                 entropy=entropy,
-                g=G,
-                cpt=same,
-                verbose=self.verbose,
-            ) + "\n"
+            )
 
-            stop = (time.time() - debut) >= self.Tmax
-            if G % 10 == 0 or G == self.Gmax or stop:
+            stop = self.should_stop(start_time)
+            if state.generation % 10 == 0 or state.generation == self.Gmax or stop:
                 self.specifics(
                     probas=saved_proba,
-                    bestInd=indMax,
-                    bestTime=timeMax,
-                    g=G,
-                    t=timedelta(seconds=(time.time() - debut)),
-                    last=G - same,
-                    out=print_out,
+                    bestInd=state.tracker.individual,
+                    bestTime=state.tracker.time_found,
+                    g=state.generation,
+                    t=self.elapsed_since(start_time),
+                    last=state.last_improvement,
+                    out=state.flush(),
                 )
-                print_out = ""
                 if stop:
                     break
 
@@ -176,8 +168,18 @@ class Pbil(Heuristic):
             probas = self.mutate_probas(probas=probas, MP=self.MP, MS=self.MS)
 
             if entropy < self.entropy:
-                same = 0
+                state.reset_stagnation()
                 probas = self.create_probas(size=self.D)
 
-        return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same, G
+        return (
+            state.tracker.score,
+            state.tracker.individual,
+            state.tracker.subset,
+            state.tracker.time_found,
+            self.pipeline,
+            pid,
+            code,
+            state.last_improvement,
+            state.generation,
+        )
 

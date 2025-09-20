@@ -11,7 +11,7 @@ from scipy.stats import beta
 from sklearn.base import ClassifierMixin
 
 from feature_selections.filters import Filter
-from feature_selections.heuristics.heuristic import Heuristic
+from feature_selections.heuristics.heuristic import Heuristic, PopulationState
 from feature_selections.heuristics.single_solution import ForwardSelection
 from utility.utility import add, createDirectory, create_population, fitness, get_entropy
 
@@ -56,7 +56,7 @@ class Tide(Heuristic):
         else:
             self.sffs_init, self.sffs_str = True, " + SFFS"
         self.entropy = entropy if entropy is not None else 0.05
-        self.path = os.path.join(self.path, "tide" + self.suffix)
+        self.path = self.path / ("tide" + self.suffix)
         createDirectory(path=self.path)
 
     def filter_initialisation(self) -> Sequence[int]:
@@ -192,107 +192,118 @@ class Tide(Heuristic):
         """
 
         code = "TIDE"
-        debut = time.time()
-        self.path = os.path.join(self.path)
+        start_time = time.time()
         createDirectory(path=self.path)
-        print_out = ""
         np.random.seed(None)
-        # Measuring the execution time
-        instant = time.time()
-        # Generation (G) initialisation
-        G, same1, same2, stop = 0, 0, 0, False
-        # Population P initialisation
-        P = create_population(inds=self.N, size=self.D)
+
+        population = create_population(inds=self.N, size=self.D)
         next_slot = 0
         r_filter, r_forward = None, None
         if self.filter_init and next_slot < self.N:
             r_filter = self.filter_initialisation()
-            P[next_slot] = r_filter
+            population[next_slot] = np.asarray(r_filter, dtype=bool)
             next_slot += 1
         if self.sffs_init and next_slot < self.N:
             r_forward = self.forward_initialisation()
-            P[next_slot] = r_forward
+            population[next_slot] = np.asarray(r_forward, dtype=bool)
             next_slot += 1
-        # Evaluates population
-        scores = self._score_population(P)
-        bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-        scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, debut
+
+        scores = self._score_population(population)
+        bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+        state = PopulationState.from_best(bestScore, bestSubset, bestInd)
+
+        initial_timer = time.time()
         mean_scores = float(np.mean(scores))
-        time_instant = timedelta(seconds=(time.time() - instant))
-        time_debut = timedelta(seconds=(time.time() - debut))
-        # Calculate diversity in population
-        entropy = get_entropy(pop=P)
-        # Pretty print the results
-        print_out = self.pprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
-                                 mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
-                                 time_total=time_debut, entropy=entropy, g=G, cpt=0, verbose=self.verbose) + "\n"
-        # Main process iteration (generation iteration)
-        while G < self.Gmax:
+        time_instant = timedelta(seconds=(time.time() - initial_timer))
+        time_total = self.elapsed_since(start_time)
+        entropy = get_entropy(pop=population)
+        self.log_generation(
+            state=state,
+            code=code,
+            pid=pid,
+            maxi=state.tracker.score,
+            best=bestScore,
+            mean=mean_scores,
+            feats=len(state.tracker.subset),
+            time_exe=time_instant,
+            time_total=time_total,
+            entropy=entropy,
+        )
+
+        while state.generation < self.Gmax:
             instant = time.time()
-            # Mutant population creation and evaluation
             for i in range(self.N):
-                # Calculate the rank for each individual
                 tbest = self.tournament(scores=scores, entropy=entropy, gamma=self.gamma)
-                # Mutant calculation Vi
-                Vi = self.mutate(P=P, n_ind=self.D, current=i, tbest=tbest)
-                # Child vector calculation Ui
+                Vi = self.mutate(P=population, n_ind=self.D, current=i, tbest=tbest)
                 score_i = max(scores[i], 0)
                 alpha, beta_param = (2 - score_i) * 2, (1 + score_i) * 2
                 CR = beta.rvs(alpha, beta_param)
-                Ui = self.crossover(n_ind=self.D, ind=P[i], mutant=Vi, cross_proba=CR)
-                # Evaluation of the trial vector
-                if all(x == y for x, y in zip(P[i], Ui)):
-                    score_ = scores[i]
+                Ui = self.crossover(n_ind=self.D, ind=population[i], mutant=Vi, cross_proba=CR)
+                if np.array_equal(population[i], Ui):
+                    score_trial = scores[i]
                 else:
-                    score_ = self._score_individual(Ui)
-                # Comparison between Xi and Ui
-                if scores[i] <= score_:
-                    # Update population
-                    P[i], scores[i] = Ui, score_
-                    bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-            G = G + 1
-            same1, same2 = same1 + 1, same2 + 1
+                    score_trial = self._score_individual(Ui)
+                if scores[i] <= score_trial:
+                    population[i], scores[i] = Ui, score_trial
+
+            bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+            state.update_current(bestScore, bestSubset, bestInd)
+            state.advance()
             mean_scores = float(np.mean(scores))
             time_instant = timedelta(seconds=(time.time() - instant))
-            time_debut = timedelta(seconds=(time.time() - debut))
-            entropy = get_entropy(pop=P)
-            # Update which individual is the best
-            if bestScore > scoreMax:
-                same1, same2 = 0, 0
-                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_debut
-            print_out = self.pprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
-                                     mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
-                                     time_total=time_debut, entropy=entropy, g=G, cpt=same2, verbose=self.verbose) + "\n"
-            # If diversity is too low restart
+            time_total = self.elapsed_since(start_time)
+            entropy = get_entropy(pop=population)
+
+            state.tracker.observe(bestScore, bestSubset, bestInd, time_total)
+            self.log_generation(
+                state=state,
+                code=code,
+                pid=pid,
+                maxi=state.tracker.score,
+                best=bestScore,
+                mean=mean_scores,
+                feats=len(state.tracker.subset),
+                time_exe=time_instant,
+                time_total=time_total,
+                entropy=entropy,
+            )
+
             if entropy < self.entropy:
-                same1 = 0
-                P = create_population(inds=self.N, size=self.D)
+                population = create_population(inds=self.N, size=self.D)
                 inserted = 0
                 if r_filter is not None and inserted < self.N:
-                    P[inserted] = r_filter
+                    population[inserted] = np.asarray(r_filter, dtype=bool)
                     inserted += 1
                 if r_forward is not None and inserted < self.N:
-                    P[inserted] = r_forward
+                    population[inserted] = np.asarray(r_forward, dtype=bool)
                     inserted += 1
                 if inserted < self.N:
-                    P[inserted] = indMax
-                scores = self._score_population(P)
-                bestScore, bestSubset, bestInd = add(scores=scores[:self.N], inds=np.asarray(P[:self.N]),
-                                                     cols=self.cols)
-            # If the time limit is exceeded, we stop
-            if time.time() - debut >= self.Tmax:
-                stop = True
-            # Write important information to file
-            if G % 10 == 0 or G == self.Gmax or stop:
+                    population[inserted] = state.tracker.individual.copy()
+                scores = self._score_population(population)
+                bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+                state.update_current(bestScore, bestSubset, bestInd)
+
+            stop = self.should_stop(start_time)
+            if state.generation % 10 == 0 or state.generation == self.Gmax or stop:
                 self.specifics(
-                    bestInd=indMax,
-                    bestTime=timeMax,
-                    g=G,
-                    t=timedelta(seconds=(time.time() - debut)),
-                    last=G - same2,
-                    out=print_out,
+                    bestInd=state.tracker.individual,
+                    bestTime=state.tracker.time_found,
+                    g=state.generation,
+                    t=self.elapsed_since(start_time),
+                    last=state.last_improvement,
+                    out=state.flush(),
                 )
-                print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same2, G
+
+        return (
+            state.tracker.score,
+            state.tracker.individual,
+            state.tracker.subset,
+            state.tracker.time_found,
+            self.pipeline,
+            pid,
+            code,
+            state.last_improvement,
+            state.generation,
+        )

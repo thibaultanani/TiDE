@@ -2,16 +2,130 @@ from __future__ import annotations
 
 import abc
 import os
-from pathlib import Path
+import time
+from dataclasses import dataclass, field
 from datetime import timedelta
+from pathlib import Path
 from typing import Optional, Sequence
 
 import joblib
+import numpy as np
 import psutil
 from sklearn.base import ClassifierMixin, RegressorMixin
 
 from feature_selections import FeatureSelection
-from utility import fitness
+from utility import add, create_population, fitness
+
+
+def _as_bool_array(individual: Sequence[bool] | np.ndarray) -> np.ndarray:
+    """Return a boolean copy of ``individual`` regardless of its original type."""
+
+    return np.asarray(individual, dtype=bool).copy()
+
+
+@dataclass
+class BestTracker:
+    """Keep track of the globally best solution discovered so far."""
+
+    score: float
+    subset: list[str]
+    individual: np.ndarray
+    time_found: timedelta = field(default_factory=timedelta)
+    stagnation: int = 0
+
+    def observe(
+        self,
+        score: float,
+        subset: Sequence[str],
+        individual: Sequence[bool] | np.ndarray,
+        time_total: timedelta,
+    ) -> None:
+        """Update the tracker when a better ``score`` is observed."""
+
+        if score > self.score:
+            self.score = float(score)
+            self.subset = list(subset)
+            self.individual = _as_bool_array(individual)
+            self.time_found = time_total
+            self.stagnation = 0
+        else:
+            self.stagnation += 1
+
+
+@dataclass
+class PopulationState:
+    """Container storing bookkeeping information for population heuristics."""
+
+    tracker: BestTracker
+    current_score: float
+    current_subset: list[str]
+    current_individual: np.ndarray
+    generation: int = 0
+    logs: list[str] = field(default_factory=list)
+
+    @classmethod
+    def from_best(
+        cls,
+        best_score: float,
+        best_subset: Sequence[str],
+        best_individual: Sequence[bool] | np.ndarray,
+    ) -> "PopulationState":
+        """Create a state seeded with an initial ``best`` solution."""
+
+        best_array = _as_bool_array(best_individual)
+        tracker = BestTracker(
+            score=float(best_score),
+            subset=list(best_subset),
+            individual=best_array.copy(),
+        )
+        return cls(
+            tracker=tracker,
+            current_score=float(best_score),
+            current_subset=list(best_subset),
+            current_individual=best_array,
+        )
+
+    def advance(self) -> None:
+        """Advance the generation counter."""
+
+        self.generation += 1
+
+    def update_current(
+        self,
+        score: float,
+        subset: Sequence[str],
+        individual: Sequence[bool] | np.ndarray,
+    ) -> None:
+        """Record the best solution of the current generation."""
+
+        self.current_score = float(score)
+        self.current_subset = list(subset)
+        self.current_individual = _as_bool_array(individual)
+
+    def record(self, line: str) -> None:
+        """Append ``line`` to the buffered textual log."""
+
+        self.logs.append(line)
+
+    def flush(self) -> str:
+        """Return the buffered log and clear the internal storage."""
+
+        if not self.logs:
+            return ""
+        output = "\n".join(self.logs) + "\n"
+        self.logs.clear()
+        return output
+
+    @property
+    def last_improvement(self) -> int:
+        """Return the generation index of the latest improvement."""
+
+        return max(0, self.generation - self.tracker.stagnation)
+
+    def reset_stagnation(self) -> None:
+        """Reset the stagnation counter without altering the tracked best."""
+
+        self.tracker.stagnation = 0
 
 
 class Heuristic(FeatureSelection):
@@ -120,6 +234,106 @@ class Heuristic(FeatureSelection):
 
         return [self.score(individual) for individual in population]
 
+    def initialise_population(
+        self,
+        *,
+        as_list: bool = False,
+    ) -> tuple[Sequence[np.ndarray], list[float], PopulationState]:
+        """Initialise a random population and return its evaluated state."""
+
+        matrix = create_population(inds=self.N, size=self.D)
+        if as_list:
+            population: Sequence[np.ndarray] = [np.array(ind, copy=True) for ind in matrix]
+        else:
+            population = matrix
+        scores = self.score_population(population)
+        best_score, best_subset, best_individual = add(
+            scores=scores, inds=np.asarray(population), cols=self.cols
+        )
+        state = PopulationState.from_best(best_score, best_subset, best_individual)
+        return population, scores, state
+
+    def restart_population(
+        self,
+        best_individual: Sequence[bool] | np.ndarray,
+        *,
+        as_list: bool = False,
+    ) -> tuple[Sequence[np.ndarray], list[float], float, list[str], np.ndarray]:
+        """Restart the population while keeping ``best_individual``."""
+
+        matrix = create_population(inds=self.N, size=self.D)
+        if as_list:
+            population: Sequence[np.ndarray] = [np.array(ind, copy=True) for ind in matrix]
+            population[0] = _as_bool_array(best_individual)
+        else:
+            population = matrix
+            population[0] = _as_bool_array(best_individual)
+        scores = self.score_population(population)
+        best_score, best_subset, best_individual = add(
+            scores=scores, inds=np.asarray(population), cols=self.cols
+        )
+        return population, scores, best_score, list(best_subset), _as_bool_array(best_individual)
+
+    def log_generation(
+        self,
+        state: PopulationState,
+        *,
+        code: str,
+        pid: int,
+        maxi: float,
+        best: float,
+        mean: float,
+        feats: int,
+        time_exe: timedelta,
+        time_total: timedelta,
+        entropy: float | None = None,
+    ) -> None:
+        """Pretty-print and buffer the progression information for ``state``."""
+
+        if entropy is None:
+            line = self.sprint_(
+                print_out="",
+                name=code,
+                pid=pid,
+                maxi=maxi,
+                best=best,
+                mean=mean,
+                feats=feats,
+                time_exe=time_exe,
+                time_total=time_total,
+                g=state.generation,
+                cpt=state.tracker.stagnation,
+                verbose=self.verbose,
+            )
+        else:
+            line = self.pprint_(
+                print_out="",
+                name=code,
+                pid=pid,
+                maxi=maxi,
+                best=best,
+                mean=mean,
+                feats=feats,
+                time_exe=time_exe,
+                time_total=time_total,
+                entropy=entropy,
+                g=state.generation,
+                cpt=state.tracker.stagnation,
+                verbose=self.verbose,
+            )
+        state.record(line)
+
+    @staticmethod
+    def elapsed_since(start_time: float) -> timedelta:
+        """Return the elapsed time since ``start_time`` as a :class:`timedelta`."""
+
+        return timedelta(seconds=(time.time() - start_time))
+
+    def should_stop(self, start_time: float) -> bool:
+        """Return ``True`` when the time budget has been exhausted."""
+
+        return (time.time() - start_time) >= self.Tmax
+
     def save(
         self,
         name: str,
@@ -164,7 +378,7 @@ class Heuristic(FeatureSelection):
                 + f"Generations: {self.Gmax}" + os.linesep
                 + f"Generations Performed: {g}" + os.linesep
                 + f"Latest Improvement: {last}" + os.linesep
-                + f"Latest Improvement (Ratio): {1 - (last / g)}" + os.linesep
+                + f"Latest Improvement (Ratio): {1 - (last / g if g else 0)}" + os.linesep
                 + f"Latest Improvement (Time): {round(bestTime.total_seconds())} ({bestTime})" + os.linesep
                 + f"Cross-validation strategy: {str(self.cv)}" + os.linesep
                 + specifics

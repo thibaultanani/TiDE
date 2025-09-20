@@ -48,7 +48,7 @@ class Nmbde(Heuristic):
         self.strat = strat
         self.b = b
         self.entropy = entropy if entropy is not None else 0.05
-        self.path = Path(self.path) / ("nmbde" + self.suffix)
+        self.path = self.path / ("nmbde" + self.suffix)
         createDirectory(path=self.path)
 
     @staticmethod
@@ -99,25 +99,24 @@ class Nmbde(Heuristic):
         """Run the NM-BDE heuristic until the stopping criteria is met."""
 
         code = "MBDE"
-        debut = time.time()
+        start_time = time.time()
         createDirectory(path=self.path)
-        print_out = ""
         np.random.seed(None)
 
-        population = create_population(inds=self.N, size=self.D)
-        scores = self.score_population(population)
-        bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
-        scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, timedelta(seconds=0)
+        population, scores, state = self.initialise_population()
+        bestScore, bestSubset, bestInd = (
+            state.current_score,
+            state.current_subset,
+            state.current_individual,
+        )
 
-        G = 0
-        same = 0
-        while G < self.Gmax:
+        while state.generation < self.Gmax:
             instant = time.time()
-            elapsed = time.time() - debut
+            elapsed = time.time() - start_time
             frac = min(elapsed / self.Tmax, 1.0)
             F = self.Fmax - (self.Fmax - self.Fmin) * frac
+            best_idx = int(np.argmax(scores))
             for i in range(self.N):
-                best_idx = int(np.argmax(scores))
                 if self.strat:
                     mutant = self.mutate_best(population, self.D, F, i, best_idx, self.b)
                 else:
@@ -129,55 +128,58 @@ class Nmbde(Heuristic):
                     score_trial = scores[i]
                 if score_trial >= scores[i]:
                     population[i], scores[i] = trial, score_trial
-                    bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
 
-            G += 1
-            same += 1
+            bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+            state.update_current(bestScore, bestSubset, bestInd)
+            state.advance()
             mean_scores = float(np.mean(scores))
             entropy = get_entropy(pop=population)
             time_instant = timedelta(seconds=(time.time() - instant))
-            time_total = timedelta(seconds=(time.time() - debut))
+            time_total = self.elapsed_since(start_time)
 
-            if bestScore > scoreMax:
-                same = 0
-                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_total
-
-            print_out = self.pprint_(
-                print_out=print_out,
-                name=code,
+            state.tracker.observe(bestScore, bestSubset, bestInd, time_total)
+            self.log_generation(
+                state=state,
+                code=code,
                 pid=pid,
-                maxi=scoreMax,
+                maxi=state.tracker.score,
                 best=bestScore,
                 mean=mean_scores,
-                feats=len(subsetMax),
+                feats=len(state.tracker.subset),
                 time_exe=time_instant,
                 time_total=time_total,
                 entropy=entropy,
-                g=G,
-                cpt=same,
-                verbose=self.verbose,
-            ) + "\n"
+            )
 
             if entropy < self.entropy:
-                same = 0
-                population = create_population(inds=self.N, size=self.D)
-                population[0] = indMax
-                scores = self.score_population(population)
-                bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
-
-            stop = (time.time() - debut) >= self.Tmax
-            if G % 10 == 0 or G == self.Gmax or stop:
-                self.specifics(
-                    bestInd=indMax,
-                    bestTime=timeMax,
-                    g=G,
-                    t=timedelta(seconds=(time.time() - debut)),
-                    last=G - same,
-                    out=print_out,
+                state.reset_stagnation()
+                population, scores, bestScore, bestSubset, bestInd = self.restart_population(
+                    state.tracker.individual, as_list=False
                 )
-                print_out = ""
+                state.update_current(bestScore, bestSubset, bestInd)
+
+            stop = self.should_stop(start_time)
+            if state.generation % 10 == 0 or state.generation == self.Gmax or stop:
+                self.specifics(
+                    bestInd=state.tracker.individual,
+                    bestTime=state.tracker.time_found,
+                    g=state.generation,
+                    t=self.elapsed_since(start_time),
+                    last=state.last_improvement,
+                    out=state.flush(),
+                )
                 if stop:
                     break
 
-        return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same, G
+        return (
+            state.tracker.score,
+            state.tracker.individual,
+            state.tracker.subset,
+            state.tracker.time_found,
+            self.pipeline,
+            pid,
+            code,
+            state.last_improvement,
+            state.generation,
+        )
 

@@ -73,7 +73,8 @@ class FeatureSelection:
         self.verbose = True if verbose is None else verbose
         base_path = Path(os.getcwd()) / (output or "out") / self.name
         base_path.mkdir(parents=True, exist_ok=True)
-        self.path = str(base_path)
+        self.base_path = base_path
+        self.path: Path = base_path
 
     @abc.abstractmethod
     def start(self, pid: int) -> None:

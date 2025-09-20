@@ -71,16 +71,42 @@ class Tide(Heuristic):
 
     def forward_initialisation(self):
         debut = time.time()
-        selected_features = []
-        scoreMax, indMax, G = -np.inf, 0, 0
+        fs_suffix = f"{self.suffix}_tide_seed" if self.suffix else "_tide_seed"
+        fs = ForwardSelection(
+            name=f"{self.name}_forward_seed",
+            target=self.target,
+            pipeline=self.pipeline,
+            train=self.train,
+            test=self.test,
+            scoring=self.scoring,
+            Tmax=self.Tmax,
+            ratio=self.ratio,
+            N=self.N,
+            Gmax=self.Gmax,
+            suffix=fs_suffix,
+            cv=self.cv,
+            verbose=False,
+            output=None,
+            strat="sffs" if self.sffs_init else "sfs"
+        )
+        fs.selected_features = []
+        scoreMax, indMax, G = -np.inf, np.zeros(self.D, dtype=int), 0
         improvement = True
         while G < self.Gmax and improvement:
-            improvement, selected_features, scoreMax, indMax, _ = ForwardSelection.forward_step(
-                train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target, pipeline=self.pipeline,
-                scoring=self.scoring, ratio=self.ratio, cv=self.cv, selected_features=selected_features,
-                scoreMax=scoreMax, indMax=indMax, start_time=debut, Tmax=self.Tmax)
+            if self.sffs_init:
+                improvement, _, scoreMax, indMax, timeout = fs._forward_backward_step(
+                    scoreMax=scoreMax,
+                    indMax=indMax,
+                    start_time=debut
+                )
+            else:
+                improvement, _, scoreMax, indMax, timeout = fs._forward_step(
+                    scoreMax=scoreMax,
+                    indMax=indMax,
+                    start_time=debut
+                )
             G = G + 1
-            if time.time() - debut >= self.Tmax:
+            if timeout or time.time() - debut >= self.Tmax:
                 break
         return indMax
 

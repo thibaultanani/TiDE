@@ -34,9 +34,28 @@ class ForwardSelection(Heuristic):
             return False
         return (time.time() - start_time) >= Tmax
 
-    @staticmethod
-    def forward_step(train, test, cols, D, target, pipeline, scoring, ratio, cv,
-                     selected_features, scoreMax, indMax, start_time, Tmax):
+    def _build_indicator(self, features):
+        indicator = np.zeros(self.D, dtype=int)
+        for var in features:
+            indicator[self.cols.get_loc(var)] = 1
+        return indicator
+
+    def _evaluate_features(self, features):
+        indicator = self._build_indicator(features)
+        score = fitness(
+            train=self.train,
+            test=self.test,
+            columns=self.cols,
+            ind=indicator,
+            target=self.target,
+            pipeline=self.pipeline,
+            scoring=self.scoring,
+            ratio=self.ratio,
+            cv=self.cv
+        )[0]
+        return indicator, score
+
+    def _forward_step(self, scoreMax, indMax, start_time):
         """
         One SFS step (add only). Returns (improvement, selected_features, scoreMax, indMax, timeout).
         Evaluates candidates and can exit early if time limit exceeded.
@@ -44,72 +63,63 @@ class ForwardSelection(Heuristic):
         improvement = False
         timeout = False
         best_feature_to_add = None
-        for feature in cols:
-            if feature in selected_features:
+        for feature in self.cols:
+            if feature in self.selected_features:
                 continue
-            if ForwardSelection._time_exceeded(start_time, Tmax):
+            if self._time_exceeded(start_time, self.Tmax):
                 timeout = True
                 break
-            candidate_features = selected_features + [feature]
-            candidate = np.zeros(D, dtype=int)
-            for var in candidate_features:
-                candidate[cols.get_loc(var)] = 1
-            if ForwardSelection._time_exceeded(start_time, Tmax):
-                timeout = True
-                break
-            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target,
-                            pipeline=pipeline, scoring=scoring, ratio=ratio, cv=cv)[0]
+            candidate_features = self.selected_features + [feature]
+            indicator, score = self._evaluate_features(candidate_features)
             if score > scoreMax:
-                scoreMax, indMax = score, candidate
+                scoreMax, indMax = score, indicator
                 best_feature_to_add = feature
                 improvement = True
-            if ForwardSelection._time_exceeded(start_time, Tmax):
+            if self._time_exceeded(start_time, self.Tmax):
                 timeout = True
                 break
         if best_feature_to_add is not None:
-            selected_features.append(best_feature_to_add)
-        return improvement, selected_features, scoreMax, indMax, timeout
+            self.selected_features.append(best_feature_to_add)
+        return improvement, self.selected_features, scoreMax, indMax, timeout
 
-    @staticmethod
-    def forward_backward_step(train, test, cols, D, target, pipeline, scoring, ratio, cv,
-                              selected_features, scoreMax, indMax, start_time, Tmax):
+    def _backward_step(self, scoreMax, indMax, start_time):
+        """
+        One backward (floating) step that removes the best candidate feature if it improves the score.
+        Returns (improvement, selected_features, scoreMax, indMax, timeout).
+        """
+        improvement = False
+        timeout = False
+        best_feature_to_remove = None
+        for feature in list(self.selected_features):
+            if self._time_exceeded(start_time, self.Tmax):
+                timeout = True
+                break
+            candidate_features = [f for f in self.selected_features if f != feature]
+            indicator, score = self._evaluate_features(candidate_features)
+            if score > scoreMax:
+                scoreMax, indMax = score, indicator
+                best_feature_to_remove = feature
+                improvement = True
+            if self._time_exceeded(start_time, self.Tmax):
+                timeout = True
+                break
+        if best_feature_to_remove is not None:
+            self.selected_features.remove(best_feature_to_remove)
+        return improvement, self.selected_features, scoreMax, indMax, timeout
+
+    def _forward_backward_step(self, scoreMax, indMax, start_time):
         """
         One SFFS step (add then conditional remove). Returns (improvement, selected_features, scoreMax, indMax, timeout).
         Time checks are performed inside both forward and backward phases.
         """
-        timeout = False
         overall_improvement = False
-        fwd_impr, selected_features, scoreMax, indMax, timeout = ForwardSelection.forward_step(
-            train, test, cols, D, target, pipeline, scoring, ratio, cv,
-            selected_features, scoreMax, indMax, start_time, Tmax
-        )
+        fwd_impr, _, scoreMax, indMax, timeout = self._forward_step(scoreMax, indMax, start_time)
         overall_improvement = overall_improvement or fwd_impr
         if timeout:
-            return overall_improvement, selected_features, scoreMax, indMax, True
-        best_feature_to_remove = None
-        for feature in list(selected_features):
-            if ForwardSelection._time_exceeded(start_time, Tmax):
-                timeout = True
-                break
-            candidate_features = [f for f in selected_features if f != feature]
-            candidate = np.zeros(D, dtype=int)
-            for var in candidate_features:
-                candidate[cols.get_loc(var)] = 1
-            if ForwardSelection._time_exceeded(start_time, Tmax):
-                timeout = True
-                break
-            score = fitness(train=train, test=test, columns=cols, ind=candidate, target=target,
-                            pipeline=pipeline, scoring=scoring, ratio=ratio, cv=cv)[0]
-            if score > scoreMax:
-                scoreMax, indMax = score, candidate
-                best_feature_to_remove = feature
-                overall_improvement = True
-            if ForwardSelection._time_exceeded(start_time, Tmax):
-                timeout = True
-                break
-        if best_feature_to_remove is not None:
-            selected_features.remove(best_feature_to_remove)
-        return overall_improvement, selected_features, scoreMax, indMax, timeout
+            return overall_improvement, self.selected_features, scoreMax, indMax, True
+        bwd_impr, _, scoreMax, indMax, timeout = self._backward_step(scoreMax, indMax, start_time)
+        overall_improvement = overall_improvement or bwd_impr
+        return overall_improvement, self.selected_features, scoreMax, indMax, timeout
 
     def start(self, pid):
         code = "SFS " if self.strat == "sfs" else "SFFS"
@@ -118,24 +128,22 @@ class ForwardSelection(Heuristic):
         createDirectory(self.path)
         print_out = ""
         np.random.seed(None)
-        scoreMax, indMax, time_debut = -np.inf, 0, debut
+        scoreMax, indMax, time_debut = -np.inf, np.zeros(self.D, dtype=int), debut
         G, same_since_improv = 0, 0
         improvement = True
         while G < self.Gmax and improvement:
             instant = time.time()
             if self.strat == "sfs":
-                improvement, self.selected_features, scoreMax, indMax, timeout = ForwardSelection.forward_step(
-                    train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target,
-                    pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv,
-                    selected_features=self.selected_features, scoreMax=scoreMax, indMax=indMax,
-                    start_time=debut, Tmax=self.Tmax
+                improvement, self.selected_features, scoreMax, indMax, timeout = self._forward_step(
+                    scoreMax=scoreMax,
+                    indMax=indMax,
+                    start_time=debut
                 )
             else:
-                improvement, self.selected_features, scoreMax, indMax, timeout = ForwardSelection.forward_backward_step(
-                    train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target,
-                    pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv,
-                    selected_features=self.selected_features, scoreMax=scoreMax, indMax=indMax,
-                    start_time=debut, Tmax=self.Tmax
+                improvement, self.selected_features, scoreMax, indMax, timeout = self._forward_backward_step(
+                    scoreMax=scoreMax,
+                    indMax=indMax,
+                    start_time=debut
                 )
             G += 1
             if improvement:
@@ -154,4 +162,15 @@ class ForwardSelection(Heuristic):
                 print_out = ""
                 if stop:
                     break
-        return scoreMax, indMax, self.selected_features, time_debut, self.pipeline, time_debut, pid, code, G - same_since_improv, G
+        return (
+            scoreMax,
+            indMax,
+            self.selected_features,
+            time_debut,
+            self.pipeline,
+            time_debut,
+            pid,
+            code,
+            G - same_since_improv,
+            G,
+        )

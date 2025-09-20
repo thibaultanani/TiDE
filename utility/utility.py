@@ -1,112 +1,193 @@
-import math
+"""Utility helpers shared across the TiDE feature selection library."""
+
+from __future__ import annotations
+
 import os
 import random
 import shutil
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
-
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, mean_squared_error, \
-    r2_score
-from sklearn.model_selection import StratifiedKFold, KFold, LeaveOneOut
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_predict
 
 
-def _dataset_root(cwd: Path, filename: str) -> Path:
-    """Return the datasets directory that contains *filename* if available."""
-
-    sibling = cwd.parent / "datasets"
-    for extension in (".xlsx", ".csv"):
-        if (sibling / f"{filename}{extension}").exists():
-            return sibling
-    return cwd / "datasets"
+DatasetPath = Path | str
 
 
-def _resolve_dataset_path(filename: str, cwd: Optional[Path] = None) -> Path:
-    """Return the dataset path stem (without extension) for *filename*."""
+def _dataset_root(filename: str | None = None) -> Path:
+    """Return the absolute path to the datasets directory.
 
-    cwd = cwd or Path.cwd()
-    return _dataset_root(cwd, filename) / filename
+    When both ``../datasets`` and ``./datasets`` exist, prefer the one that
+    actually contains ``filename``; otherwise fall back to the closest existing
+    directory to preserve backwards compatibility with older entrypoints.
+    """
+
+    cwd = Path(os.getcwd())
+    parent = cwd.parent / "datasets"
+    direct = cwd / "datasets"
+
+    if filename is not None:
+        for root in (parent, direct):
+            if not root.exists():
+                continue
+            base = root / filename
+            if base.with_suffix(".xlsx").exists() or base.with_suffix(".csv").exists():
+                return root
+
+    for root in (parent, direct):
+        if root.exists():
+            return root
+
+    return direct
 
 
-def read(filename, separator=','):
+def _resolve_dataset_path(filename: str) -> Path:
+    """Return the dataset path (without extension) for ``filename``.
+
+    Parameters
+    ----------
+    filename:
+        Base filename without extension.
+    """
+
+    return _dataset_root(filename) / filename
+
+
+def read(filename: str, separator: str = ",") -> pd.DataFrame:
+    """Load a dataset from either the CSV or XLSX representation.
+
+    Parameters
+    ----------
+    filename:
+        Base filename (without extension).
+    separator:
+        Column separator used in the CSV representation of the dataset.
+    """
+
     path = _resolve_dataset_path(filename)
-    path_str = str(path)
     try:
-        data = pd.read_excel(path_str + '.xlsx', index_col=None, engine='openpyxl')
+        return pd.read_excel(f"{path}.xlsx", index_col=None, engine="openpyxl")
     except FileNotFoundError:
-        data = pd.read_csv(path_str + '.csv', index_col=None, sep=separator)
-    return data
+        return pd.read_csv(f"{path}.csv", index_col=None, sep=separator)
 
 
-def write(filename, data):
+def write(filename: str, data: pd.DataFrame) -> pd.DataFrame:
+    """Persist a dataset to both CSV and XLSX when possible.
+
+    Parameters
+    ----------
+    filename:
+        Base filename (without extension).
+    data:
+        Data to serialise.
+    """
+
     path = _resolve_dataset_path(filename)
     try:
-        data.to_excel(path.with_suffix('.xlsx'), index=False)
-    except (FileNotFoundError, ImportError):
-        data.to_csv(path.with_suffix('.csv'), index=False)
+        data.to_excel(f"{path}.xlsx", index=False)
+    except FileNotFoundError:
+        data.to_csv(f"{path}.csv", index=False)
     return data
 
 
-def createDirectory(path):
-    # Clears the record of previous experiments on the same dataset with the same heuristic
-    final = path
-    if os.path.exists(final):
-        shutil.rmtree(final)
-    os.makedirs(final)
+def createDirectory(path: DatasetPath) -> None:  # noqa: N802 - legacy name kept for compatibility
+    """Create a clean directory at ``path``.
+
+    Existing experiment outputs are removed to avoid mixing results from
+    different runs.  The legacy camel-case name is kept to preserve backwards
+    compatibility with the public API, even though the implementation follows
+    ``snake_case`` conventions internally.
+    """
+
+    final_path = Path(path)
+    if final_path.exists():
+        shutil.rmtree(final_path)
+    final_path.mkdir(parents=True, exist_ok=True)
 
 
-def create_population(inds, size):
-    # Initialise the population
+def create_population(inds: int, size: int) -> np.ndarray:
+    """Return a boolean population matrix initialised at random."""
+
     pop = np.random.rand(inds, size) < np.random.rand(inds, 1)
     pop = pop[:, np.argsort(-np.random.rand(size), axis=0)]
     return pop.astype(bool)
 
 
-def fitness(train, test, columns, ind, target, pipeline, scoring, ratio, cv=None):
+def _ensure_valid_individual(individual: Sequence[bool]) -> np.ndarray:
+    """Ensure that at least one feature is selected in ``individual``."""
+
+    as_array = np.asarray(individual, dtype=bool)
+    if not as_array.any():
+        as_array = as_array.copy()
+        random_index = random.randrange(len(as_array))
+        as_array[random_index] = True
+    return as_array
+
+
+def _prepare_subset(columns: Sequence[str], selected: Sequence[bool]) -> List[str]:
+    """Return the column names flagged as ``True`` in ``selected``."""
+
+    return [columns[idx] for idx, keep in enumerate(selected) if keep]
+
+
+def fitness(
+    train: pd.DataFrame,
+    test: Optional[pd.DataFrame],
+    columns: Sequence[str],
+    ind: Sequence[bool],
+    target: str,
+    pipeline,
+    scoring,
+    ratio: float,
+    cv=None,
+):
+    """Evaluate an individual and return the penalised score and predictions.
+
+    Returns
+    -------
+    tuple
+        ``(score, y_true, y_pred)`` where ``score`` is penalised by the
+        ``ratio`` hyper-parameter.
     """
-    train : DataFrame (training)
-    test : DataFrame (test) (None if Cross validation)
-    columns : list of candidate column names
-    ind : binary individual (feature selection)
-    target : name of the target feature
-    pipeline : scikit-learn pipeline including preprocessing + model
-    scoring : sklearn score function (e.g. accuracy_score)
-    ratio : penalty coefficient
-    cv : cross-validation object (StratifiedKFold, KFold, LOO, etc.)
-    """
-    if not any(ind[:-1]):
-        ind[random.randint(0, len(ind) - 1)] = 1
-    subset = [columns[c] for c in range(len(columns)) if ind[c]]
+
+    selected = _ensure_valid_individual(ind)
+    subset = _prepare_subset(columns, selected)
     train_sub = train[subset + [target]]
     X_train, y_train = train_sub.drop(columns=[target]), train_sub[target]
+
     if test is None and cv is not None:
         y_pred = cross_val_predict(pipeline, X_train, y_train, cv=cv, n_jobs=1)
         score = scoring(y_train, y_pred) - (ratio * (len(subset) / len(columns)))
         return score, y_train.reset_index(drop=True), pd.Series(y_pred)
-    else:
-        test_sub = test[subset + [target]]
-        X_test, y_test = test_sub.drop(columns=[target]), test_sub[target]
-        pipeline.fit(X_train, y_train)
-        y_pred = pipeline.predict(X_test)
-        score = scoring(y_test, y_pred) - (ratio * (len(subset) / len(columns)))
-        return score, y_test.reset_index(drop=True), pd.Series(y_pred)
+
+    if test is None:
+        raise ValueError("Either 'test' or 'cv' must be provided to compute fitness.")
+
+    test_sub = test[subset + [target]]
+    X_test, y_test = test_sub.drop(columns=[target]), test_sub[target]
+    pipeline.fit(X_train, y_train)
+    y_pred = pipeline.predict(X_test)
+    score = scoring(y_test, y_pred) - (ratio * (len(subset) / len(columns)))
+    return score, y_test.reset_index(drop=True), pd.Series(y_pred)
 
 
-def random_int_power(n, power=2):
-    p = np.array([1 / (i ** power) for i in range(1, n + 1)])
-    p = p / p.sum()
-    return np.random.choice(range(1, n + 1), p=p)
+def random_int_power(n: int, power: int = 2) -> int:
+    """Return an integer sampled from ``[1, n]`` with a power-law distribution."""
+
+    weights = np.array([1 / (i**power) for i in range(1, n + 1)])
+    weights = weights / weights.sum()
+    return int(np.random.choice(range(1, n + 1), p=weights))
 
 
-def diversification(individual, distance):
-    neighbor = individual.copy()
+def diversification(individual: Sequence[int], distance: int) -> List[int]:
+    """Create a neighbour by flipping ``distance`` random positions."""
+
+    neighbor = list(individual)
     size = len(neighbor)
     if distance >= 0:
-        num_moves = random.randint(1, distance)
+        num_moves = random.randint(1, max(1, distance))
     else:
         num_moves = random_int_power(n=size, power=2)
     move_indices = random.sample(range(size), num_moves)
@@ -115,35 +196,25 @@ def diversification(individual, distance):
     return neighbor
 
 
-def get_entropy(pop):
-    H = []
-    # Loop over the columns
-    for i in range(len(pop[0])):
-        # Initialize variables to store the counts of True and False values
-        true_count = 0
-        false_count = 0
-        # Loop over the rows and count the number of True and False values in the current column
-        for row in pop:
-            if row[i]:
-                true_count += 1
-            else:
-                false_count += 1
-        # Calculate the probabilities of True and False values
-        p_true = true_count / (true_count + false_count)
-        p_false = false_count / (true_count + false_count)
-        # Calculate the Shannon's entropy for the current column
-        if p_true == 0 or p_false == 0:
-            entropy = 0
-        else:
-            entropy = -(p_true * math.log2(p_true) + p_false * math.log2(p_false))
-        # Append the result to the list
-        H.append(entropy)
-    return sum(H) / len(H)
+def get_entropy(pop: Sequence[Sequence[bool]]) -> float:
+    """Compute the mean Shannon entropy of a population."""
+
+    array_pop = np.asarray(pop, dtype=bool)
+    if array_pop.size == 0:
+        return 0.0
+    probs = array_pop.mean(axis=0)
+    probs = np.clip(probs, 1e-12, 1 - 1e-12)
+    entropy = -(probs * np.log2(probs) + (1 - probs) * np.log2(1 - probs))
+    return float(np.mean(entropy))
 
 
-def add(scores, inds, cols):
-    argmax = np.argmax(scores)
-    bestScore = scores[argmax]
-    bestInd = inds[argmax]
-    bestSubset = [cols[i] for i in range(len(cols)) if bestInd[i]]
-    return bestScore, bestSubset, bestInd
+def add(scores: Sequence[float], inds: Sequence[Sequence[bool]], cols: Sequence[str]) -> tuple[float, List[str], np.ndarray]:
+    """Return the best score, subset of features and individual."""
+
+    scores_array = np.asarray(scores)
+    inds_array = np.asarray(inds)
+    argmax = int(np.argmax(scores_array))
+    best_score = float(scores_array[argmax])
+    best_ind = inds_array[argmax]
+    best_subset = _prepare_subset(cols, best_ind)
+    return best_score, best_subset, best_ind

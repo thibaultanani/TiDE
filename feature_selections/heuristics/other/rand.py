@@ -1,97 +1,127 @@
-import os
+"""Random feature selection baseline."""
+
+from __future__ import annotations
+
 import time
+from datetime import timedelta
+from pathlib import Path
+
 import numpy as np
-import warnings
 
 from feature_selections.heuristics.heuristic import Heuristic
-from datetime import timedelta
-from utility.utility import createDirectory, add, fitness
-
-warnings.filterwarnings('ignore')
+from utility.utility import add, createDirectory
 
 
 class Random(Heuristic):
-    """
-    Class that implements the random search heuristic
-    """
-    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None, N=None,
-                 Gmax=None, suffix=None, cv=None, verbose=None, output=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
-                         verbose, output)
-        self.path = os.path.join(self.path, 'rand' + self.suffix)
+    """Randomly sample feature subsets for benchmarking."""
+
+    def __init__(
+        self,
+        name,
+        target,
+        pipeline,
+        train,
+        test=None,
+        drops=None,
+        scoring=None,
+        Tmax=None,
+        ratio=None,
+        N=None,
+        Gmax=None,
+        suffix=None,
+        cv=None,
+        verbose=None,
+        output=None,
+    ) -> None:
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        self.path = Path(self.path) / ("rand" + self.suffix)
         createDirectory(path=self.path)
 
-    def specifics(self, bestInd, bestTime, g, t, last, out):
-        self.save("Random Generation", bestInd, bestTime, g, t, last, "", out)
-
     @staticmethod
-    def create_population(inds, size):
-        # Initialise the population
-        pop = np.zeros((inds, size), dtype=bool)
+    def create_population(inds: int, size: int) -> np.ndarray:
+        pop = np.zeros((inds, size), dtype=int)
         for i in range(inds):
             num_true = np.random.randint(1, size)
-            true_indices = np.random.choice(size - 1, size=num_true, replace=False)
-            pop[i, true_indices] = True
-        pop = pop.astype(int)
+            true_indices = np.random.choice(size, size=num_true, replace=False)
+            pop[i, true_indices] = 1
         return pop
 
-    def start(self, pid):
+    def specifics(self, bestInd, bestTime, g, t, last, out) -> None:  # noqa: D401
+        self.save("Random Generation", bestInd, bestTime, g, t, last, "", out)
+
+    def start(self, pid: int):
+        """Repeatedly sample and evaluate random subsets."""
+
         code = "RAND"
         debut = time.time()
-        self.path = os.path.join(self.path)
         createDirectory(path=self.path)
         print_out = ""
         np.random.seed(None)
-        # Measuring the execution time
-        instant = time.time()
-        # Generation (G) initialisation
-        G, same, stop = 0, 0, False
-        # Population P initialisation
-        P = self.create_population(inds=self.N, size=self.D)
-        # Evaluates population
-        scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
-        bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-        scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, debut
+
+        population = self.create_population(inds=self.N, size=self.D)
+        scores = self.score_population(population)
+        bestScore, bestSubset, bestInd = add(scores=scores, inds=population, cols=self.cols)
+        scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, timedelta(seconds=0)
+
+        G = 0
+        same = 0
         mean_scores = float(np.mean(scores))
-        time_instant = timedelta(seconds=(time.time() - instant))
-        time_debut = timedelta(seconds=(time.time() - debut))
-        # Pretty print the results
-        print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
-                                 mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
-                                 time_total=time_debut, g=G, cpt=0, verbose=self.verbose) + "\n"
-        # Main process iteration (generation iteration)
+        print_out = self.sprint_(
+            print_out=print_out,
+            name=code,
+            pid=pid,
+            maxi=scoreMax,
+            best=bestScore,
+            mean=mean_scores,
+            feats=len(subsetMax),
+            time_exe=timedelta(seconds=0),
+            time_total=timedelta(seconds=0),
+            g=G,
+            cpt=0,
+            verbose=self.verbose,
+        ) + "\n"
+
         while G < self.Gmax:
             instant = time.time()
-            # Neighborhood exploration and evaluation
-            neighborhood = self.create_population(inds=self.N, size=self.D)
-            # Evaluate the neighborhood
-            scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                              pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
-                      for ind in neighborhood]
-            bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(neighborhood), cols=self.cols)
-            bestInd = bestInd.tolist()
-            G = G + 1
-            same = same + 1
+            neighbourhood = self.create_population(inds=self.N, size=self.D)
+            scores = self.score_population(neighbourhood)
+            bestScore, bestSubset, bestInd = add(scores=scores, inds=neighbourhood, cols=self.cols)
+            G += 1
+            same += 1
+            mean_scores = float(np.mean(scores))
             time_instant = timedelta(seconds=(time.time() - instant))
-            time_debut = timedelta(seconds=(time.time() - debut))
-            # Update which individual is the best
+            time_total = timedelta(seconds=(time.time() - debut))
             if bestScore > scoreMax:
                 same = 0
-                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_debut
-            print_out = self.sprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
-                                     mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
-                                     time_total=time_debut, g=G, cpt=same, verbose=self.verbose) + "\n"
-            # If the time limit is exceeded, we stop
-            if time.time() - debut >= self.Tmax:
-                stop = True
-            # Write important information to file
+                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_total
+            print_out = self.sprint_(
+                print_out=print_out,
+                name=code,
+                pid=pid,
+                maxi=scoreMax,
+                best=bestScore,
+                mean=mean_scores,
+                feats=len(subsetMax),
+                time_exe=time_instant,
+                time_total=time_total,
+                g=G,
+                cpt=same,
+                verbose=self.verbose,
+            ) + "\n"
+
+            stop = (time.time() - debut) >= self.Tmax
             if G % 10 == 0 or G == self.Gmax or stop:
-                # Write important information to file
-                self.specifics(bestInd=indMax, bestTime=timeMax, g=G, t=timedelta(seconds=(time.time() - debut)),
-                               last=G - same, out=print_out)
+                self.specifics(
+                    bestInd=indMax,
+                    bestTime=timeMax,
+                    g=G,
+                    t=timedelta(seconds=(time.time() - debut)),
+                    last=G - same,
+                    out=print_out,
+                )
                 print_out = ""
                 if stop:
                     break
+
         return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same, G
 

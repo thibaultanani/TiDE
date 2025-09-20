@@ -1,113 +1,158 @@
+from __future__ import annotations
+
 import os
 import random
 import time
+from tempfile import TemporaryDirectory
+from datetime import timedelta
+from typing import Iterable, Sequence, Tuple
+
 import numpy as np
 from scipy.stats import beta
 from sklearn.base import ClassifierMixin
 
 from feature_selections.filters import Filter
+from feature_selections.heuristics.heuristic import Heuristic, PopulationState
 from feature_selections.heuristics.single_solution import ForwardSelection
-from feature_selections.heuristics.heuristic import Heuristic
-from datetime import timedelta
-from utility.utility import createDirectory, add, get_entropy, create_population, fitness
+from utility.utility import add, createDirectory, create_population, fitness, get_entropy
 
 
 class Tide(Heuristic):
-    """
-    Class that implements the new heuristic: tournament in differential evolution
+    """Tournament in Differential Evolution feature selection heuristic."""
 
-    Args:
-        gamma (float)       : The minimum threshold for the percentage of individuals to be selected by tournament
-        filter_init (bool)  : The choice of using filter method for initialisation (anova or correlation learning task)
-        sffs_init (bool)    : The choice of using sffs method for initialisation
-        entropy (float)     : Minimum threshold of diversity in the population to be reached before a reset
-    """
-    def __init__(self, name, target, pipeline, train, test=None, drops=None, scoring=None, Tmax=None, ratio=None,
-                 N=None, Gmax=None, gamma=None, filter_init=None, sffs_init=None, entropy=None, suffix=None, cv=None,
-                 verbose=None, output=None):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix,
-                         verbose, output)
+    def __init__(
+        self,
+        name,
+        target,
+        pipeline,
+        train,
+        test=None,
+        drops=None,
+        scoring=None,
+        Tmax=None,
+        ratio=None,
+        N=None,
+        Gmax=None,
+        gamma=None,
+        filter_init=None,
+        sffs_init=None,
+        entropy=None,
+        suffix=None,
+        cv=None,
+        verbose=None,
+        output=None,
+    ):
+        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
         self.gamma = gamma if gamma is not None else 0.8
         if filter_init is False:
-            self.filter_init, self.filter_str = False, ''
+            self.filter_init, self.filter_str = False, ""
         else:
             self.filter_init = True
             if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
-                self.filter_str = ' + ANOVA'
+                self.filter_str = " + ANOVA"
             else:
-                self.filter_str = ' + CORRELATION'
+                self.filter_str = " + CORRELATION"
         if sffs_init is False:
-            self.sffs_init, self.sffs_str = False, ''
+            self.sffs_init, self.sffs_str = False, ""
         else:
-            self.sffs_init, self.sffs_str = True, ' + SFFS'
+            self.sffs_init, self.sffs_str = True, " + SFFS"
         self.entropy = entropy if entropy is not None else 0.05
-        self.path = os.path.join(self.path, 'tide' + self.suffix)
+        self.path = self.path / ("tide" + self.suffix)
         createDirectory(path=self.path)
 
-    def filter_initialisation(self):
+    def filter_initialisation(self) -> Sequence[int]:
+        """Initialise the population with a filter-based ranking of features."""
+
         debut = time.time()
         if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
-            sorted_features, f_results = Filter.anova_selection(df=self.train, target=self.target)
+            sorted_features, _ = Filter.anova_selection(df=self.train, target=self.target)
         else:
-            sorted_features, f_results = Filter.correlation_selection(df=self.train, target=self.target)
-        score, model, col, vector, G = -np.inf, 0, 0, 0, 0
-        k = [val for val in range(1, 101)]
-        num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in k]
+            sorted_features, _ = Filter.correlation_selection(df=self.train, target=self.target)
+        best_score, best_vector = -np.inf, [0] * self.D
+        num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in range(1, 101)]
         num_features = [val for val in num_features if val >= 1]
         num_features = list(dict.fromkeys(num_features))
-        while G < self.Gmax:
-            top_k_features = sorted_features[:num_features[G]]
-            G = G + 1
-            v = [0] * self.D
+        generation = 0
+        while generation < self.Gmax and generation < len(num_features):
+            top_k_features = sorted_features[:num_features[generation]]
+            generation += 1
+            candidate = [0] * self.D
             for var in top_k_features:
-                v[self.cols.get_loc(var)] = 1
-            s = fitness(train=self.train, test=self.test, columns=self.cols, ind=v, target=self.target,
-                        pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
-            if s > score:
-                score, vector = s, v
-            if time.time() - debut >= self.Tmax or G == len(num_features):
+                candidate[self.cols.get_loc(var)] = 1
+            score = fitness(
+                train=self.train,
+                test=self.test,
+                columns=self.cols,
+                ind=candidate,
+                target=self.target,
+                pipeline=self.pipeline,
+                scoring=self.scoring,
+                ratio=self.ratio,
+                cv=self.cv,
+            )[0]
+            if score > best_score:
+                best_score, best_vector = score, candidate
+            if time.time() - debut >= self.Tmax:
                 break
-        return vector
+        return best_vector
 
-    def forward_initialisation(self):
+    def forward_initialisation(self) -> Sequence[int]:
+        """Initialise the population with the forward selection heuristic."""
+
         debut = time.time()
-        fs_suffix = f"{self.suffix}_tide_seed" if self.suffix else "_tide_seed"
-        fs = ForwardSelection(
-            name=f"{self.name}_forward_seed",
-            target=self.target,
-            pipeline=self.pipeline,
-            train=self.train,
-            test=self.test,
-            scoring=self.scoring,
-            Tmax=self.Tmax,
-            ratio=self.ratio,
-            N=self.N,
-            Gmax=self.Gmax,
-            suffix=fs_suffix,
-            cv=self.cv,
-            verbose=False,
-            output=None,
-            strat="sffs" if self.sffs_init else "sfs"
-        )
-        scoreMax, indMax, G = -np.inf, np.zeros(self.D, dtype=int), 0
+        scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
+        generation = 0
         improvement = True
-        if self.sffs_init:
-            step_fn = fs._forward_backward_step
-        else:
-            step_fn = fs._forward_step
-        while G < self.Gmax and improvement:
-            improvement, _, scoreMax, indMax, timeout = step_fn(
-                scoreMax=scoreMax,
-                indMax=indMax,
-                start_time=debut,
+
+        with TemporaryDirectory() as tmp_output:
+            selector = ForwardSelection(
+                name=f"{self.name}_tide_seed",
+                target=self.target,
+                pipeline=self.pipeline,
+                train=self.train,
+                test=self.test,
+                drops=None,
+                scoring=self.scoring,
+                Tmax=self.Tmax,
+                ratio=self.ratio,
+                N=self.N,
+                Gmax=self.Gmax,
+                suffix=self.suffix,
+                cv=self.cv,
+                verbose=False,
+                output=tmp_output,
+                strat="sffs",
             )
-            G = G + 1
-            if timeout or time.time() - debut >= self.Tmax:
-                break
-        return indMax
+
+            while generation < self.Gmax and improvement:
+                improvement, _, scoreMax, indMax, timeout = selector._forward_step(
+                    start_time=debut,
+                    scoreMax=scoreMax,
+                    indMax=indMax,
+                )
+                if timeout:
+                    break
+
+                if selector.selected_features:
+                    back_improv, _, scoreMax, indMax, timeout = selector._backward_step(
+                        start_time=debut,
+                        scoreMax=scoreMax,
+                        indMax=indMax,
+                    )
+                    improvement = improvement or back_improv
+                    if timeout:
+                        break
+
+                generation += 1
+                if selector._time_exceeded(debut, self.Tmax):
+                    break
+
+        return indMax.tolist()
 
     @staticmethod
-    def mutate(P, n_ind, current, tbest):
+    def mutate(P: Sequence[Sequence[bool]], n_ind: int, current: int, tbest: int) -> list[int]:
+        """Mutate an individual following the TiDE mutation operator."""
+
         selected = np.random.choice([i for i in range(len(P)) if i != current and i != tbest], 2, replace=False)
         Xr1, Xr2, Xr3 = P[tbest], P[selected[0]], P[selected[1]]
         mutant = []
@@ -119,7 +164,9 @@ class Tide(Heuristic):
         return mutant
 
     @staticmethod
-    def crossover(n_ind, ind, mutant, cross_proba):
+    def crossover(n_ind: int, ind: Sequence[int], mutant: Sequence[int], cross_proba: float) -> np.ndarray:
+        """Perform a binomial crossover between parent and mutant."""
+
         cross_points = np.random.rand(n_ind) <= cross_proba
         child = np.where(cross_points, mutant, ind)
         jrand = random.randint(0, n_ind - 1)
@@ -127,107 +174,173 @@ class Tide(Heuristic):
         return child
 
     @staticmethod
-    def tournament(scores, entropy, gamma):
+    def tournament(scores: Sequence[float], entropy: float, gamma: float) -> int:
+        """Return the index of the best individual selected by tournament."""
+
         p = (1 - entropy) * (1 - gamma) + gamma
         nb_scores = max(2, int(len(scores) * p))
         selected = random.choices(scores, k=nb_scores)
         score_max = np.amax(selected)
         return scores.index(score_max)
 
-    def specifics(self, bestInd, bestTime, g, t, last, out):
+    def specifics(
+        self,
+        bestInd: Sequence[bool],
+        bestTime: timedelta,
+        g: int,
+        t: timedelta,
+        last: int,
+        out: str,
+    ) -> None:
+        """Serialise TiDE-specific metadata alongside the common heuristic summary."""
+
         name = "Tournament In Differential" + self.filter_str + self.sffs_str
         string = "Gamma: " + str(self.gamma) + os.linesep
         self.save(name, bestInd, bestTime, g, t, last, string, out)
 
-    def start(self, pid):
+    def _score_individual(self, ind: Sequence[bool]) -> float:
+        """Evaluate an individual and return its penalised score."""
+
+        return fitness(
+            train=self.train,
+            test=self.test,
+            columns=self.cols,
+            ind=ind,
+            target=self.target,
+            pipeline=self.pipeline,
+            scoring=self.scoring,
+            ratio=self.ratio,
+            cv=self.cv,
+        )[0]
+
+    def _score_population(self, population: Iterable[Sequence[bool]]) -> list[float]:
+        """Vectorised scoring utility for a whole population."""
+
+        return [self._score_individual(ind) for ind in population]
+
+    def start(self, pid: int) -> Tuple[float, Sequence[bool], Sequence[str], timedelta, object, int, str, int, int]:
+        """Run the TiDE optimisation loop.
+
+        Returns
+        -------
+        tuple
+            A tuple containing the best score, individual, selected subset and
+            bookkeeping information consumed by the experiment harness.
+        """
+
         code = "TIDE"
-        debut = time.time()
-        self.path = os.path.join(self.path)
+        start_time = time.time()
         createDirectory(path=self.path)
-        print_out = ""
         np.random.seed(None)
-        # Measuring the execution time
-        instant = time.time()
-        # Generation (G) initialisation
-        G, same1, same2, stop = 0, 0, 0, False
-        # Population P initialisation
-        P = create_population(inds=self.N, size=self.D)
-        r1, r2 = None, None
-        if self.filter_init:
-            r1, r2 = self.filter_initialisation(), self.forward_initialisation()
-            P[0], P[1] = r1, r2
-        # Evaluates population
-        scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0] for ind in P]
-        bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-        scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, debut
+
+        population = create_population(inds=self.N, size=self.D)
+        next_slot = 0
+        r_filter, r_forward = None, None
+        if self.filter_init and next_slot < self.N:
+            r_filter = self.filter_initialisation()
+            population[next_slot] = np.asarray(r_filter, dtype=bool)
+            next_slot += 1
+        if self.sffs_init and next_slot < self.N:
+            r_forward = self.forward_initialisation()
+            population[next_slot] = np.asarray(r_forward, dtype=bool)
+            next_slot += 1
+
+        scores = self._score_population(population)
+        bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+        state = PopulationState.from_best(bestScore, bestSubset, bestInd)
+
+        initial_timer = time.time()
         mean_scores = float(np.mean(scores))
-        time_instant = timedelta(seconds=(time.time() - instant))
-        time_debut = timedelta(seconds=(time.time() - debut))
-        # Calculate diversity in population
-        entropy = get_entropy(pop=P)
-        # Pretty print the results
-        print_out = self.pprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
-                                 mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
-                                 time_total=time_debut, entropy=entropy, g=G, cpt=0, verbose=self.verbose) + "\n"
-        # Main process iteration (generation iteration)
-        while G < self.Gmax:
+        time_instant = timedelta(seconds=(time.time() - initial_timer))
+        time_total = self.elapsed_since(start_time)
+        entropy = get_entropy(pop=population)
+        self.log_generation(
+            state=state,
+            code=code,
+            pid=pid,
+            maxi=state.tracker.score,
+            best=bestScore,
+            mean=mean_scores,
+            feats=len(state.tracker.subset),
+            time_exe=time_instant,
+            time_total=time_total,
+            entropy=entropy,
+        )
+
+        while state.generation < self.Gmax:
             instant = time.time()
-            # Mutant population creation and evaluation
             for i in range(self.N):
-                # Calculate the rank for each individual
                 tbest = self.tournament(scores=scores, entropy=entropy, gamma=self.gamma)
-                # Mutant calculation Vi
-                Vi = self.mutate(P=P, n_ind=self.D, current=i, tbest=tbest)
-                # Child vector calculation Ui
+                Vi = self.mutate(P=population, n_ind=self.D, current=i, tbest=tbest)
                 score_i = max(scores[i], 0)
                 alpha, beta_param = (2 - score_i) * 2, (1 + score_i) * 2
                 CR = beta.rvs(alpha, beta_param)
-                Ui = self.crossover(n_ind=self.D, ind=P[i], mutant=Vi, cross_proba=CR)
-                # Evaluation of the trial vector
-                if all(x == y for x, y in zip(P[i], Ui)):
-                    score_ = scores[i]
+                Ui = self.crossover(n_ind=self.D, ind=population[i], mutant=Vi, cross_proba=CR)
+                if np.array_equal(population[i], Ui):
+                    score_trial = scores[i]
                 else:
-                    score_ = fitness(train=self.train, test=self.test, columns=self.cols, ind=Ui, target=self.target,
-                                     pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]
-                # Comparison between Xi and Ui
-                if scores[i] <= score_:
-                    # Update population
-                    P[i], scores[i] = Ui, score_
-                    bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(P), cols=self.cols)
-            G = G + 1
-            same1, same2 = same1 + 1, same2 + 1
+                    score_trial = self._score_individual(Ui)
+                if scores[i] <= score_trial:
+                    population[i], scores[i] = Ui, score_trial
+
+            bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+            state.update_current(bestScore, bestSubset, bestInd)
+            state.advance()
             mean_scores = float(np.mean(scores))
             time_instant = timedelta(seconds=(time.time() - instant))
-            time_debut = timedelta(seconds=(time.time() - debut))
-            entropy = get_entropy(pop=P)
-            # Update which individual is the best
-            if bestScore > scoreMax:
-                same1, same2 = 0, 0
-                scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_debut
-            print_out = self.pprint_(print_out=print_out, name=code, pid=pid, maxi=scoreMax, best=bestScore,
-                                     mean=mean_scores, feats=len(subsetMax), time_exe=time_instant,
-                                     time_total=time_debut, entropy=entropy, g=G, cpt=same2, verbose=self.verbose) + "\n"
-            # If diversity is too low restart
+            time_total = self.elapsed_since(start_time)
+            entropy = get_entropy(pop=population)
+
+            state.tracker.observe(bestScore, bestSubset, bestInd, time_total)
+            self.log_generation(
+                state=state,
+                code=code,
+                pid=pid,
+                maxi=state.tracker.score,
+                best=bestScore,
+                mean=mean_scores,
+                feats=len(state.tracker.subset),
+                time_exe=time_instant,
+                time_total=time_total,
+                entropy=entropy,
+            )
+
             if entropy < self.entropy:
-                same1 = 0
-                P = create_population(inds=self.N, size=self.D)
-                if self.filter_init:
-                    P[0], P[1], P[2] = r1, r2, indMax
-                else:
-                    P[0] = indMax
-                scores = [fitness(train=self.train, test=self.test, columns=self.cols, ind=ind, target=self.target,
-                          pipeline=self.pipeline, scoring=self.scoring, ratio=self.ratio, cv=self.cv)[0]for ind in P]
-                bestScore, bestSubset, bestInd = add(scores=scores[:self.N], inds=np.asarray(P[:self.N]),
-                                                     cols=self.cols)
-            # If the time limit is exceeded, we stop
-            if time.time() - debut >= self.Tmax:
-                stop = True
-            # Write important information to file
-            if G % 10 == 0 or G == self.Gmax or stop:
-                self.specifics(bestInd=indMax, bestTime=timeMax, g=G,
-                               t=timedelta(seconds=(time.time() - debut)), last=G - same2, out=print_out)
-                print_out = ""
+                population = create_population(inds=self.N, size=self.D)
+                inserted = 0
+                if r_filter is not None and inserted < self.N:
+                    population[inserted] = np.asarray(r_filter, dtype=bool)
+                    inserted += 1
+                if r_forward is not None and inserted < self.N:
+                    population[inserted] = np.asarray(r_forward, dtype=bool)
+                    inserted += 1
+                if inserted < self.N:
+                    population[inserted] = state.tracker.individual.copy()
+                scores = self._score_population(population)
+                bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+                state.update_current(bestScore, bestSubset, bestInd)
+
+            stop = self.should_stop(start_time)
+            if state.generation % 10 == 0 or state.generation == self.Gmax or stop:
+                self.specifics(
+                    bestInd=state.tracker.individual,
+                    bestTime=state.tracker.time_found,
+                    g=state.generation,
+                    t=self.elapsed_since(start_time),
+                    last=state.last_improvement,
+                    out=state.flush(),
+                )
                 if stop:
                     break
-        return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same2, G
+
+        return (
+            state.tracker.score,
+            state.tracker.individual,
+            state.tracker.subset,
+            state.tracker.time_found,
+            self.pipeline,
+            pid,
+            code,
+            state.last_improvement,
+            state.generation,
+        )

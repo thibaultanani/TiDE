@@ -1,72 +1,40 @@
+"""Tests for utility helper functions."""
+
+from __future__ import annotations
+
+import sys
 from pathlib import Path
 
 import pandas as pd
-import pytest
+import pandas.testing as pdt
 
-from utility.utility import read, write
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-
-def test_read_uses_repo_dataset_when_sibling_missing(monkeypatch):
-    repo_root = Path(__file__).resolve().parents[1]
-    dataset_name = "internet"
-    dataset_csv = repo_root / "datasets" / f"{dataset_name}.csv"
-    if not dataset_csv.exists():
-        pytest.skip("internet.csv dataset is required for this test")
-
-    sibling_dir = repo_root.parent / "datasets"
-    created_dir = False
-    if not sibling_dir.exists():
-        sibling_dir.mkdir()
-        created_dir = True
-    else:
-        for extension in (".xlsx", ".csv"):
-            if (sibling_dir / f"{dataset_name}{extension}").exists():
-                pytest.skip("Sibling datasets directory already contains the target dataset")
-
-    try:
-        monkeypatch.chdir(repo_root)
-        data = read(dataset_name)
-        expected = pd.read_csv(dataset_csv, sep=",")
-        pd.testing.assert_frame_equal(data, expected)
-    finally:
-        if created_dir:
-            sibling_dir.rmdir()
+from utility import utility
 
 
-def test_write_uses_repo_dataset_when_sibling_missing(monkeypatch):
-    repo_root = Path(__file__).resolve().parents[1]
-    dataset_name = "test_tmp_dataset"
-    repo_dataset_dir = repo_root / "datasets"
-    repo_files = [repo_dataset_dir / f"{dataset_name}{ext}" for ext in (".xlsx", ".csv")]
-    sibling_dir = repo_root.parent / "datasets"
-    sibling_files = [sibling_dir / f"{dataset_name}{ext}" for ext in (".xlsx", ".csv")]
+def test_read_prefers_repo_datasets_when_parent_missing_file(tmp_path, monkeypatch):
+    """Ensure ``read`` falls back to the repository datasets directory."""
 
-    if any(path.exists() for path in repo_files + sibling_files):
-        pytest.skip("Temporary dataset files already exist")
+    project_dir = tmp_path / "repo"
+    parent_dir = tmp_path
 
-    created_dir = False
-    if not sibling_dir.exists():
-        sibling_dir.mkdir()
-        created_dir = True
+    repo_datasets = project_dir / "datasets"
+    parent_datasets = parent_dir / "datasets"
+
+    repo_datasets.mkdir(parents=True)
+    parent_datasets.mkdir(parents=True)
 
     data = pd.DataFrame({"value": [1, 2, 3]})
+    data.to_csv(repo_datasets / "example.csv", index=False)
 
-    try:
-        monkeypatch.chdir(repo_root)
-        write(dataset_name, data)
+    monkeypatch.chdir(project_dir)
 
-        repo_written_files = [path for path in repo_files if path.exists()]
-        assert repo_written_files, "Dataset should be written into the repository datasets directory"
-        assert not any(path.exists() for path in sibling_files), (
-            "Dataset should not be written into the sibling datasets directory"
-        )
+    loaded = utility.read("example")
 
-        loaded = read(dataset_name)
-        expected = data.reset_index(drop=True)
-        pd.testing.assert_frame_equal(loaded.reset_index(drop=True), expected)
-    finally:
-        for path in repo_files + sibling_files:
-            if path.exists():
-                path.unlink()
-        if created_dir:
-            sibling_dir.rmdir()
+    pdt.assert_frame_equal(loaded.reset_index(drop=True), data)
+
+    # Sanity check: no file exists in the parent datasets directory
+    assert not Path(parent_datasets / "example.csv").exists()

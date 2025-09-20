@@ -51,6 +51,7 @@ class ForwardSelection(Heuristic):
         candidate = np.zeros(self.D, dtype=int)
         for var in feature_set:
             candidate[self.cols.get_loc(var)] = 1
+
         score = fitness(
             train=self.train,
             test=self.test,
@@ -134,7 +135,6 @@ class ForwardSelection(Heuristic):
         createDirectory(path=self.path)
         print_out = ""
         np.random.seed(None)
-
         scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
         G = 0
         same_since_improv = 0
@@ -180,7 +180,6 @@ class ForwardSelection(Heuristic):
                 print_out = ""
                 if stop:
                     break
-
         best_time = timedelta(seconds=(time.time() - debut))
         return (
             scoreMax,
@@ -193,4 +192,3 @@ class ForwardSelection(Heuristic):
             G - same_since_improv,
             G,
         )
-

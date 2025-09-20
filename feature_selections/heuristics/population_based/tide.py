@@ -89,22 +89,14 @@ class Tide(Heuristic):
             output=None,
             strat="sffs" if self.sffs_init else "sfs"
         )
-        fs.selected_features = []
         scoreMax, indMax, G = -np.inf, np.zeros(self.D, dtype=int), 0
         improvement = True
         while G < self.Gmax and improvement:
-            if self.sffs_init:
-                improvement, _, scoreMax, indMax, timeout = fs._forward_backward_step(
-                    scoreMax=scoreMax,
-                    indMax=indMax,
-                    start_time=debut
-                )
-            else:
-                improvement, _, scoreMax, indMax, timeout = fs._forward_step(
-                    scoreMax=scoreMax,
-                    indMax=indMax,
-                    start_time=debut
-                )
+            improvement, _, scoreMax, indMax, timeout = fs.step(
+                scoreMax=scoreMax,
+                indMax=indMax,
+                start_time=debut,
+            )
             G = G + 1
             if timeout or time.time() - debut >= self.Tmax:
                 break

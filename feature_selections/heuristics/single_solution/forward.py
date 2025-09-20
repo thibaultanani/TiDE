@@ -121,6 +121,14 @@ class ForwardSelection(Heuristic):
         overall_improvement = overall_improvement or bwd_impr
         return overall_improvement, self.selected_features, scoreMax, indMax, timeout
 
+    def step(self, scoreMax, indMax, start_time=None):
+        """Run a single optimisation step according to the configured strategy."""
+        if start_time is None:
+            start_time = time.time()
+        if self.strat == "sfs":
+            return self._forward_step(scoreMax=scoreMax, indMax=indMax, start_time=start_time)
+        return self._forward_backward_step(scoreMax=scoreMax, indMax=indMax, start_time=start_time)
+
     def start(self, pid):
         code = "SFS " if self.strat == "sfs" else "SFFS"
         debut = time.time()

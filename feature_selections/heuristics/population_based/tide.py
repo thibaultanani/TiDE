@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import time
+from tempfile import TemporaryDirectory
 from datetime import timedelta
 from typing import Iterable, Sequence, Tuple
 
@@ -99,18 +100,54 @@ class Tide(Heuristic):
         """Initialise the population with the forward selection heuristic."""
 
         debut = time.time()
-        selected_features = []
-        scoreMax, indMax, G = -np.inf, 0, 0
+        scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
+        generation = 0
         improvement = True
-        while G < self.Gmax and improvement:
-            improvement, selected_features, scoreMax, indMax, _ = ForwardSelection.forward_step(
-                train=self.train, test=self.test, cols=self.cols, D=self.D, target=self.target, pipeline=self.pipeline,
-                scoring=self.scoring, ratio=self.ratio, cv=self.cv, selected_features=selected_features,
-                scoreMax=scoreMax, indMax=indMax, start_time=debut, Tmax=self.Tmax)
-            G = G + 1
-            if time.time() - debut >= self.Tmax:
-                break
-        return indMax
+
+        with TemporaryDirectory() as tmp_output:
+            selector = ForwardSelection(
+                name=f"{self.name}_tide_seed",
+                target=self.target,
+                pipeline=self.pipeline,
+                train=self.train,
+                test=self.test,
+                drops=None,
+                scoring=self.scoring,
+                Tmax=self.Tmax,
+                ratio=self.ratio,
+                N=self.N,
+                Gmax=self.Gmax,
+                suffix=self.suffix,
+                cv=self.cv,
+                verbose=False,
+                output=tmp_output,
+                strat="sffs",
+            )
+
+            while generation < self.Gmax and improvement:
+                improvement, _, scoreMax, indMax, timeout = selector._forward_step(
+                    start_time=debut,
+                    scoreMax=scoreMax,
+                    indMax=indMax,
+                )
+                if timeout:
+                    break
+
+                if selector.selected_features:
+                    back_improv, _, scoreMax, indMax, timeout = selector._backward_step(
+                        start_time=debut,
+                        scoreMax=scoreMax,
+                        indMax=indMax,
+                    )
+                    improvement = improvement or back_improv
+                    if timeout:
+                        break
+
+                generation += 1
+                if selector._time_exceeded(debut, self.Tmax):
+                    break
+
+        return indMax.tolist()
 
     @staticmethod
     def mutate(P: Sequence[Sequence[bool]], n_ind: int, current: int, tbest: int) -> list[int]:

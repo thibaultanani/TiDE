@@ -16,18 +16,31 @@ from sklearn.model_selection import cross_val_predict
 DatasetPath = Path | str
 
 
-def _dataset_root() -> Path:
+def _dataset_root(filename: str | None = None) -> Path:
     """Return the absolute path to the datasets directory.
 
-    The project historically stored datasets either in ``datasets`` or in
-    ``../datasets`` depending on the execution entrypoint. This helper keeps the
-    existing behaviour while offering a single place to update in the future.
+    When both ``../datasets`` and ``./datasets`` exist, prefer the one that
+    actually contains ``filename``; otherwise fall back to the closest existing
+    directory to preserve backwards compatibility with older entrypoints.
     """
 
     cwd = Path(os.getcwd())
-    direct = cwd / "datasets"
     parent = cwd.parent / "datasets"
-    return parent if parent.exists() else direct
+    direct = cwd / "datasets"
+
+    if filename is not None:
+        for root in (parent, direct):
+            if not root.exists():
+                continue
+            base = root / filename
+            if base.with_suffix(".xlsx").exists() or base.with_suffix(".csv").exists():
+                return root
+
+    for root in (parent, direct):
+        if root.exists():
+            return root
+
+    return direct
 
 
 def _resolve_dataset_path(filename: str) -> Path:
@@ -39,7 +52,7 @@ def _resolve_dataset_path(filename: str) -> Path:
         Base filename without extension.
     """
 
-    return _dataset_root() / filename
+    return _dataset_root(filename) / filename
 
 
 def read(filename: str, separator: str = ",") -> pd.DataFrame:

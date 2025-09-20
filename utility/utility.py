@@ -2,6 +2,9 @@ import math
 import os
 import random
 import shutil
+from pathlib import Path
+from typing import Optional
+
 import numpy as np
 import pandas as pd
 
@@ -12,27 +15,39 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_predict
 
 
+def _dataset_root(cwd: Path, filename: str) -> Path:
+    """Return the datasets directory that contains *filename* if available."""
+
+    sibling = cwd.parent / "datasets"
+    for extension in (".xlsx", ".csv"):
+        if (sibling / f"{filename}{extension}").exists():
+            return sibling
+    return cwd / "datasets"
+
+
+def _resolve_dataset_path(filename: str, cwd: Optional[Path] = None) -> Path:
+    """Return the dataset path stem (without extension) for *filename*."""
+
+    cwd = cwd or Path.cwd()
+    return _dataset_root(cwd, filename) / filename
+
+
 def read(filename, separator=','):
-    if os.path.exists(os.path.join(os.getcwd(), os.path.join('../datasets', filename))):
-        path = os.path.join(os.getcwd(), os.path.join('../datasets', filename))
-    else:
-        path = os.path.join(os.getcwd(), os.path.join('datasets', filename))
+    path = _resolve_dataset_path(filename)
+    path_str = str(path)
     try:
-        data = pd.read_excel(path + '.xlsx', index_col=None, engine='openpyxl')
+        data = pd.read_excel(path_str + '.xlsx', index_col=None, engine='openpyxl')
     except FileNotFoundError:
-        data = pd.read_csv(path + '.csv', index_col=None, sep=separator)
+        data = pd.read_csv(path_str + '.csv', index_col=None, sep=separator)
     return data
 
 
 def write(filename, data):
-    if os.path.exists(os.path.join(os.getcwd(), os.path.join('../datasets', filename))):
-        path = os.path.join(os.getcwd(), os.path.join('../datasets', filename))
-    else:
-        path = os.path.join(os.getcwd(), os.path.join('datasets', filename))
+    path = _resolve_dataset_path(filename)
     try:
-        data.to_excel(path + '.xlsx', index=False)
-    except FileNotFoundError:
-        data.to_csv(path + '.csv', index=False)
+        data.to_excel(path.with_suffix('.xlsx'), index=False)
+    except (FileNotFoundError, ImportError):
+        data.to_csv(path.with_suffix('.csv'), index=False)
     return data
 
 

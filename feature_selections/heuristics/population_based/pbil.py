@@ -32,6 +32,11 @@ class Pbil(Heuristic):
         (defaults to 15% of ``N``).
     entropy: float
         Threshold under which the probability vector is reset to 0.5.
+    warm_start_prob: float
+        Initial probability assigned to warm-start features (defaults to 0.8).
+    warm_start_cold_prob: float
+        Initial probability assigned to features outside the warm start when a
+        warm start is supplied (defaults to 0.2).
     """
 
     def __init__(
@@ -56,21 +61,52 @@ class Pbil(Heuristic):
         cv=None,
         verbose=None,
         output=None,
+        warm_start=None,
+        warm_start_prob: float = 0.8,
+        warm_start_cold_prob: float = 0.2,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.LR = LR
         self.MP = MP
         self.MS = MS
         self.n = n if n is not None else int(self.N * 0.15)
         self.entropy = entropy
+        self.warm_start_prob = float(np.clip(warm_start_prob, 1e-3, 1 - 1e-3))
+        self.warm_start_cold_prob = float(np.clip(warm_start_cold_prob, 1e-3, 1 - 1e-3))
         self.path = self.path / ("pbil" + self.suffix)
         create_directory(path=self.path)
 
     @staticmethod
-    def create_probas(size: int) -> list[float]:
-        """Create a probability vector initialised at 0.5 for each feature."""
+    def create_probas(
+        size: int,
+        warm_mask: np.ndarray | None,
+        warm_prob: float,
+        cold_prob: float,
+    ) -> list[float]:
+        """Create a probability vector initialised with optional warm bias."""
 
-        return [0.5] * size
+        if warm_mask is None:
+            return [0.5] * size
+        probas = np.full(size, cold_prob, dtype=float)
+        probas[warm_mask] = warm_prob
+        return probas.tolist()
 
     @staticmethod
     def top_n_average(population: Sequence[Sequence[int]], scores: Sequence[float], n: int) -> np.ndarray:
@@ -131,7 +167,12 @@ class Pbil(Heuristic):
         create_directory(path=self.path)
         np.random.seed(None)
 
-        probas = self.create_probas(size=self.D)
+        probas = self.create_probas(
+            size=self.D,
+            warm_mask=self._warm_start_mask,
+            warm_prob=self.warm_start_prob,
+            cold_prob=self.warm_start_cold_prob,
+        )
         saved_proba = copy(probas)
         state = PopulationState.from_best(float("-inf"), [], np.zeros(self.D, dtype=bool))
 
@@ -185,7 +226,12 @@ class Pbil(Heuristic):
 
             if entropy < self.entropy:
                 state.reset_stagnation()
-                probas = self.create_probas(size=self.D)
+            probas = self.create_probas(
+                size=self.D,
+                warm_mask=self._warm_start_mask,
+                warm_prob=self.warm_start_prob,
+                cold_prob=self.warm_start_cold_prob,
+            )
 
         return (
             state.tracker.score,

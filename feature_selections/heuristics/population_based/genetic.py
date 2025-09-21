@@ -46,8 +46,26 @@ class Genetic(Heuristic):
         cv=None,
         verbose=None,
         output=None,
+        warm_start=None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.mutation = mutation if mutation is not None else -1
         self.entropy = entropy if entropy is not None else 0.05
         self.path = self.path / ("genetic" + self.suffix)

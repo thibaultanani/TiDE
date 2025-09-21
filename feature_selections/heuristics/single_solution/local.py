@@ -43,8 +43,26 @@ class LocalSearch(Heuristic):
         cv=None,
         verbose=None,
         output=None,
+        warm_start=None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.size = size if size is not None else self.N
         self.nb = nb if nb is not None else -1
         self.path = Path(self.path) / ("local" + self.suffix)
@@ -63,9 +81,18 @@ class LocalSearch(Heuristic):
         print_out = ""
         np.random.seed(None)
 
-        population = create_population(inds=self.N, size=self.D)
+        population = create_population(inds=self.N, size=self.D).astype(bool)
+        warm_mask = self._warm_start_mask.copy() if self._warm_start_mask is not None else None
+        if warm_mask is not None:
+            population[0] = warm_mask
         scores = self.score_population(population)
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+        if warm_mask is not None:
+            warm_score = self.score(warm_mask)
+            if warm_score >= bestScore:
+                bestScore = warm_score
+                bestSubset = self.warm_start_features
+                bestInd = warm_mask
         scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, timedelta(seconds=0)
 
         G = 0

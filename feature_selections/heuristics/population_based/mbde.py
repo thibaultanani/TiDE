@@ -56,8 +56,26 @@ class Nmbde(Heuristic):
         cv=None,
         verbose=None,
         output=None,
+        warm_start=None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.Fmax = Fmax
         self.Fmin = Fmin
         self.CR = CR

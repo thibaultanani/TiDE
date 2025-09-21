@@ -55,8 +55,26 @@ class Tide(Heuristic):
         cv=None,
         verbose=None,
         output=None,
+        warm_start=None,
     ):
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.gamma = gamma if gamma is not None else 0.8
         if filter_init is False:
             self.filter_init, self.filter_str = False, ""
@@ -243,9 +261,10 @@ class Tide(Heuristic):
         create_directory(path=self.path)
         np.random.seed(None)
 
-        population = create_population(inds=self.N, size=self.D)
+        population = create_population(inds=self.N, size=self.D).astype(bool)
         next_slot = 0
         r_filter, r_forward = None, None
+        warm_vector = self._warm_start_mask.copy() if self._warm_start_mask is not None else None
         if self.filter_init and next_slot < self.N:
             r_filter = self.filter_initialisation()
             population[next_slot] = np.asarray(r_filter, dtype=bool)
@@ -254,9 +273,18 @@ class Tide(Heuristic):
             r_forward = self.forward_initialisation()
             population[next_slot] = np.asarray(r_forward, dtype=bool)
             next_slot += 1
+        if warm_vector is not None and next_slot < self.N:
+            population[next_slot] = warm_vector
+            next_slot += 1
 
         scores = self._score_population(population)
         bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(population), cols=self.cols)
+        if warm_vector is not None:
+            warm_score = self.score(warm_vector)
+            if warm_score >= bestScore:
+                bestScore = warm_score
+                bestSubset = self.warm_start_features
+                bestInd = warm_vector
         state = PopulationState.from_best(bestScore, bestSubset, bestInd)
 
         initial_timer = time.time()
@@ -316,13 +344,16 @@ class Tide(Heuristic):
             )
 
             if entropy < self.entropy:
-                population = create_population(inds=self.N, size=self.D)
+                population = create_population(inds=self.N, size=self.D).astype(bool)
                 inserted = 0
                 if r_filter is not None and inserted < self.N:
                     population[inserted] = np.asarray(r_filter, dtype=bool)
                     inserted += 1
                 if self.sfs_init and r_forward is not None and inserted < self.N:
                     population[inserted] = np.asarray(r_forward, dtype=bool)
+                    inserted += 1
+                if warm_vector is not None and inserted < self.N:
+                    population[inserted] = warm_vector
                     inserted += 1
                 if inserted < self.N:
                     population[inserted] = state.tracker.individual.copy()

@@ -148,8 +148,25 @@ class Heuristic(FeatureSelection):
         suffix=None,
         verbose=None,
         output=None,
+        warm_start: Optional[Sequence[str]] = None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.N = N if N is not None else 100
 
     @abc.abstractmethod
@@ -255,7 +272,9 @@ class Heuristic(FeatureSelection):
     ) -> tuple[Sequence[np.ndarray], list[float], PopulationState]:
         """Initialise a random population and return its evaluated state."""
 
-        matrix = create_population(inds=self.N, size=self.D)
+        matrix = create_population(inds=self.N, size=self.D).astype(bool)
+        if self._warm_start_mask is not None:
+            matrix[0] = self._warm_start_mask
         if as_list:
             population: Sequence[np.ndarray] = [np.array(ind, copy=True) for ind in matrix]
         else:
@@ -264,6 +283,12 @@ class Heuristic(FeatureSelection):
         best_score, best_subset, best_individual = add(
             scores=scores, inds=np.asarray(population), cols=self.cols
         )
+        if self._warm_start_mask is not None:
+            warm_score = self.score(self._warm_start_mask)
+            if warm_score >= best_score:
+                best_score = warm_score
+                best_subset = self.warm_start_features
+                best_individual = self._warm_start_mask.copy()
         state = PopulationState.from_best(best_score, best_subset, best_individual)
         return population, scores, state
 
@@ -275,7 +300,7 @@ class Heuristic(FeatureSelection):
     ) -> tuple[Sequence[np.ndarray], list[float], float, list[str], np.ndarray]:
         """Restart the population while keeping ``best_individual``."""
 
-        matrix = create_population(inds=self.N, size=self.D)
+        matrix = create_population(inds=self.N, size=self.D).astype(bool)
         if as_list:
             population: Sequence[np.ndarray] = [np.array(ind, copy=True) for ind in matrix]
             population[0] = _as_bool_array(best_individual)

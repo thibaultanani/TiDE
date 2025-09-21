@@ -47,8 +47,26 @@ class SimulatedAnnealing(Heuristic):
         p0: float = 0.8,
         pf: float = 0.01,
         seed=None,
+        warm_start=None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.path = Path(self.path) / ("simulated_annealing" + self.suffix)
         create_directory(self.path)
         self.p0 = float(p0)
@@ -112,7 +130,10 @@ class SimulatedAnnealing(Heuristic):
         print_out = ""
         self.rng = np.random.default_rng()
 
-        current = self._random_mask()
+        if self._warm_start_mask is not None:
+            current = self._ensure_non_empty(self._warm_start_mask.astype(int))
+        else:
+            current = self._random_mask()
         current_score = self._score(current)
         best = current.copy()
         best_score = current_score

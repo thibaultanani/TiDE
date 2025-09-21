@@ -54,6 +54,7 @@ class Filter(FeatureSelection):
         verbose=None,
         output=None,
         method: str | None = None,
+        warm_start: Sequence[str] | None = None,
     ) -> None:
         super().__init__(
             name,
@@ -70,6 +71,7 @@ class Filter(FeatureSelection):
             suffix,
             verbose,
             output,
+            warm_start=warm_start,
         )
 
         self._estimator = self._resolve_estimator()

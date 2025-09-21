@@ -4,6 +4,8 @@ import abc
 import os
 from pathlib import Path
 from typing import Any, Optional, Sequence
+
+import numpy as np
 import pandas as pd
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix, multilabel_confusion_matrix
 
@@ -27,6 +29,7 @@ class FeatureSelection:
         suffix: Optional[str] = None,
         verbose: Optional[bool] = None,
         output: Optional[str] = None,
+        warm_start: Optional[Sequence[str]] = None,
     ) -> None:
         """Initialise a feature selection experiment.
 
@@ -50,9 +53,29 @@ class FeatureSelection:
             ``test`` prior to optimisation.
         scoring:
             Scoring callable returning a higher value for better performance.
-        Gmax/Tmax/ratio/suffix/verbose/output:
-            Advanced configuration knobs kept for backwards compatibility with
-            the original implementation.
+        Gmax:
+            Maximum number of iterations/generations explored by the concrete
+            strategy. ``None`` disables the iteration limit.
+        Tmax:
+            Time budget (in seconds). Once exceeded, optimisation stops
+            gracefully. ``None`` means no explicit wall-clock budget.
+        ratio:
+            Penalty weight applied to the proportion of selected features when
+            scoring subsets (``0`` disables the sparsity penalty).
+        suffix:
+            Optional string appended to output directories, useful to
+            differentiate runs sharing the same ``name``.
+        verbose:
+            When ``True``, progress information is printed to stdout.
+        output:
+            Base directory where experiment artefacts (logs, models, reports)
+            are written. Defaults to ``./out/<name>`` relative to the current
+            working directory.
+        warm_start:
+            Optional iterable of feature names. For selectors supporting
+            warm-starts, this subset seeds the initial individual (or
+            probability vector for PBIL). Names not present in ``train`` are
+            ignored.
         """
 
         drops = list(drops or [])
@@ -75,6 +98,18 @@ class FeatureSelection:
         base_path.mkdir(parents=True, exist_ok=True)
         self.base_path = base_path
         self.path: Path = base_path
+
+        warm_features = list(dict.fromkeys(col for col in (warm_start or []) if col in self.cols))
+        mask = np.zeros(self.D, dtype=bool)
+        for feature in warm_features:
+            idx = self.cols.get_loc(feature)
+            mask[idx] = True
+        if not mask.any():
+            self._warm_start_mask: Optional[np.ndarray] = None
+            self.warm_start_features: list[str] = []
+        else:
+            self._warm_start_mask = mask
+            self.warm_start_features = warm_features
 
     @abc.abstractmethod
     def start(self, pid: int) -> None:

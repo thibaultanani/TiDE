@@ -51,8 +51,26 @@ class Differential(Heuristic):
         cv=None,
         verbose=None,
         output=None,
+        warm_start=None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
         self.F = F
         self.CR = CR
         self.strat = (strat or "rand/1").strip()

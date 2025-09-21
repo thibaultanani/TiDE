@@ -41,9 +41,28 @@ class BackwardSelection(Heuristic):
         verbose=None,
         output=None,
         strat=None,
+        warm_start=None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
-        self.selected_features: List[str] = self.cols.tolist()
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
+        initial = self.warm_start_features if self.warm_start_features else self.cols.tolist()
+        self.selected_features: List[str] = list(dict.fromkeys(initial))
         self.strat = (strat or "sfbs").strip().lower()
         if self.strat not in {"sbs", "sfbs"}:
             raise ValueError(f"Unknown strat '{strat}'. Expected 'sbs' or 'sfbs'.")
@@ -142,7 +161,7 @@ class BackwardSelection(Heuristic):
         print_out = ""
         np.random.seed(None)
 
-        scoreMax, indMax = -np.inf, np.ones(self.D, dtype=int)
+        scoreMax, indMax = self._evaluate_candidate(self.selected_features)
         G = 0
         same_since_improv = 0
         improvement = True

@@ -41,9 +41,27 @@ class ForwardSelection(Heuristic):
         verbose=None,
         output=None,
         strat=None,
+        warm_start=None,
     ) -> None:
-        super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
-        self.selected_features: List[str] = []
+        super().__init__(
+            name,
+            target,
+            pipeline,
+            train,
+            test,
+            cv,
+            drops,
+            scoring,
+            N,
+            Gmax,
+            Tmax,
+            ratio,
+            suffix,
+            verbose,
+            output,
+            warm_start=warm_start,
+        )
+        self.selected_features: List[str] = list(self.warm_start_features)
         self.strat = (strat or "sffs").strip().lower()
         if self.strat not in {"sfs", "sffs"}:
             raise ValueError(f"Unknown strat '{strat}'. Expected 'sfs' or 'sffs'.")
@@ -142,7 +160,11 @@ class ForwardSelection(Heuristic):
         create_directory(path=self.path)
         print_out = ""
         np.random.seed(None)
-        scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
+        if self.selected_features:
+            scoreMax, indArray = self._evaluate_candidate(self.selected_features)
+            indMax = indArray
+        else:
+            scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
         G = 0
         same_since_improv = 0
         improvement = True

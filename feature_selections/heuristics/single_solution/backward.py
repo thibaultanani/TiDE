@@ -10,11 +10,18 @@ from typing import List, Sequence, Tuple
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import createDirectory, fitness
+from utility.utility import create_directory, fitness
 
 
 class BackwardSelection(Heuristic):
-    """Sequential (floating) backward selection."""
+    """Sequential (floating) backward selection.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    strat: str | None
+        ``'sbs'`` keeps pure backward elimination, ``'sfbs'`` enables the
+        floating variant that may re-add features after removal.
+    """
 
     def __init__(
         self,
@@ -41,7 +48,7 @@ class BackwardSelection(Heuristic):
         if self.strat not in {"sbs", "sfbs"}:
             raise ValueError(f"Unknown strat '{strat}'. Expected 'sbs' or 'sfbs'.")
         self.path = Path(self.path) / ("backward_selection" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def _time_exceeded(start_time: float, Tmax: float | None) -> bool:
@@ -131,7 +138,7 @@ class BackwardSelection(Heuristic):
 
         code = "SBS " if self.strat == "sbs" else "SFBS"
         debut = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         print_out = ""
         np.random.seed(None)
 
@@ -190,4 +197,3 @@ class BackwardSelection(Heuristic):
             G - same_since_improv,
             G,
         )
-

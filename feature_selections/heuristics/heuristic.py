@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import joblib
 import numpy as np
@@ -153,8 +153,22 @@ class Heuristic(FeatureSelection):
         self.N = N if N is not None else 100
 
     @abc.abstractmethod
-    def start(self, pid: int) -> None:
-        """Execute the heuristic optimisation process."""
+    def start(self, pid: int) -> tuple[Any, ...]:
+        """Execute the heuristic optimisation process.
+
+        Implementations must return a 9-item tuple matching the layout used by
+        the higher-level experiment harness::
+
+            (score, mask, subset, time_found, pipeline, pid, code,
+             last_improvement, generations)
+
+        ``score`` is the penalised objective value, ``mask`` is the boolean
+        indicator of selected features, ``subset`` lists the feature names,
+        ``time_found`` captures when the current best was discovered,
+        ``pipeline`` is the fitted estimator, ``pid`` and ``code`` identify the
+        run, and the last two integers provide bookkeeping information for
+        convergence tracking.
+        """
 
     @staticmethod
     def pprint_(
@@ -349,10 +363,18 @@ class Heuristic(FeatureSelection):
 
         results_path = Path(self.path) / "results.txt"
         with results_path.open("w", encoding="utf-8") as f:
+            estimator = self.pipeline
+            if hasattr(self.pipeline, "steps") and getattr(self.pipeline, "steps", None):
+                try:
+                    estimator = self.pipeline.steps[-1][1]
+                except (AttributeError, IndexError, TypeError):
+                    estimator = self.pipeline
+
             try:
-                method = self.pipeline.steps[-1][1].__class__.__name__
+                method = estimator.__class__.__name__
             except Exception:
                 method = str(self.pipeline)
+
             bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
             score_train, y_true, y_pred = fitness(
                 train=self.train,
@@ -365,10 +387,10 @@ class Heuristic(FeatureSelection):
                 ratio=0,
                 cv=self.cv,
             )
-            if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
+            if isinstance(estimator, ClassifierMixin):
                 tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
                 string_tmp = f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep
-            elif isinstance(self.pipeline.steps[-1][1], RegressorMixin):
+            elif isinstance(estimator, RegressorMixin):
                 string_tmp = f"Regression residuals (first 5): {(y_true - y_pred).head().tolist()}" + os.linesep
             else:
                 string_tmp = ""

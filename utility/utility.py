@@ -92,9 +92,11 @@ def write(filename: str, data: pd.DataFrame) -> pd.DataFrame:
     return data
 
 
-def createDirectory(path: DatasetPath) -> None:  # noqa: N802 - legacy name kept for compatibility
+def create_directory(path: DatasetPath) -> None:
     """Create a clean directory at ``path``.
 
+    The target directory is **always deleted** before being recreated, so avoid
+    pointing it at locations that may contain artefacts you need to keep.
     Existing experiment outputs are removed to avoid mixing results from
     different runs.  The legacy camel-case name is kept to preserve backwards
     compatibility with the public API, even though the implementation follows

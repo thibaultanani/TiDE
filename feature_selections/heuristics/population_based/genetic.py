@@ -12,11 +12,20 @@ from typing import Sequence, Tuple
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, createDirectory, create_population, get_entropy, random_int_power
+from utility.utility import add, create_directory, get_entropy, random_int_power
 
 
 class Genetic(Heuristic):
-    """Classic generational genetic algorithm with rank/roulette selection."""
+    """Classic generational genetic algorithm with rank/roulette selection.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    mutation: int | None
+        Maximum number of bit flips applied during mutation. A negative value
+        activates the power-law sampling used in the original implementation.
+    entropy: float | None
+        Minimum population entropy tolerated before triggering a full restart.
+    """
 
     def __init__(
         self,
@@ -42,7 +51,7 @@ class Genetic(Heuristic):
         self.mutation = mutation if mutation is not None else -1
         self.entropy = entropy if entropy is not None else 0.05
         self.path = self.path / ("genetic" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def get_ranks(scores: Sequence[float]) -> list[int]:
@@ -118,7 +127,7 @@ class Genetic(Heuristic):
 
         code = "GENE"
         start_time = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         np.random.seed(None)
 
         population, scores, state = self.initialise_population(as_list=True)
@@ -187,4 +196,3 @@ class Genetic(Heuristic):
             state.last_improvement,
             state.generation,
         )
-

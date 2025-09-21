@@ -9,11 +9,20 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, createDirectory, create_population, diversification
+from utility.utility import add, create_directory, create_population, diversification
 
 
 class LocalSearch(Heuristic):
-    """Iterative improvement via neighbourhood exploration."""
+    """Iterative improvement via neighbourhood exploration.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    size: int | None
+        Number of neighbours sampled at each iteration (defaults to ``N``).
+    nb: int | None
+        Diversification radius; negative values enable the power-law schedule
+        from the original implementation.
+    """
 
     def __init__(
         self,
@@ -39,7 +48,7 @@ class LocalSearch(Heuristic):
         self.size = size if size is not None else self.N
         self.nb = nb if nb is not None else -1
         self.path = Path(self.path) / ("local" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     def specifics(self, bestInd, bestTime, g, t, last, out) -> None:  # noqa: D401
         string = "Disruption Rate: " + str(self.nb) + "\n"
@@ -50,7 +59,7 @@ class LocalSearch(Heuristic):
 
         code = "LS  "
         debut = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         print_out = ""
         np.random.seed(None)
 
@@ -105,4 +114,3 @@ class LocalSearch(Heuristic):
                     break
 
         return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same, G
-

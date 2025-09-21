@@ -12,11 +12,23 @@ from typing import Callable, Dict
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, createDirectory, create_population, get_entropy
+from utility.utility import add, create_directory, create_population, get_entropy
 
 
 class Differential(Heuristic):
-    """Binary differential evolution with multiple mutation strategies."""
+    """Binary differential evolution with multiple mutation strategies.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    F: float
+        Differential weight controlling the amplitude of mutation steps.
+    CR: float
+        Crossover probability applied during trial vector generation.
+    strat: str | None
+        Mutation strategy label (``'rand/1'``, ``'best/2'``, etc.).
+    entropy: float
+        Restart threshold on the population entropy.
+    """
 
     def __init__(
         self,
@@ -60,76 +72,86 @@ class Differential(Heuristic):
         if self.strat not in valid:
             raise ValueError(f"strat '{self.strat}' invalid. Choose from {sorted(valid)}.")
         self.path = self.path / ("differential" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def _mutate_rand(pop: np.ndarray, n_ind: int, F: float, current: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3 = np.random.choice(idx, 3, replace=False)
-        mixture = pop[r1] + F * (pop[r2] - pop[r3])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[r1] + F * (pop_f[r2] - pop_f[r3])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_best(pop: np.ndarray, n_ind: int, F: float, current: int, best: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i not in (current, best)]
         r1, r2 = np.random.choice(idx, 2, replace=False)
-        mixture = pop[best] + F * (pop[r1] - pop[r2])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[best] + F * (pop_f[r1] - pop_f[r2])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_current_to_rand_1(pop: np.ndarray, n_ind: int, F: float, current: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3 = np.random.choice(idx, 3, replace=False)
-        mixture = pop[current] + F * (pop[r1] - pop[current]) + F * (pop[r2] - pop[r3])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[current] + F * (pop_f[r1] - pop_f[current]) + F * (pop_f[r2] - pop_f[r3])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_current_to_best_1(pop: np.ndarray, n_ind: int, F: float, current: int, best: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i not in (current, best)]
         r1, r2 = np.random.choice(idx, 2, replace=False)
-        mixture = pop[current] + F * (pop[best] - pop[current]) + F * (pop[r1] - pop[r2])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[current] + F * (pop_f[best] - pop_f[current]) + F * (pop_f[r1] - pop_f[r2])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_rand_to_best_1(pop: np.ndarray, n_ind: int, F: float, current: int, best: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3 = np.random.choice(idx, 3, replace=False)
-        mixture = pop[r1] + F * (pop[best] - pop[current]) + F * (pop[r2] - pop[r3])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[r1] + F * (pop_f[best] - pop_f[current]) + F * (pop_f[r2] - pop_f[r3])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_rand_2(pop: np.ndarray, n_ind: int, F: float, current: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3, r4, r5 = np.random.choice(idx, 5, replace=False)
-        mixture = pop[r1] + F * (pop[r2] - pop[r3]) + F * (pop[r4] - pop[r5])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[r1] + F * (pop_f[r2] - pop_f[r3]) + F * (pop_f[r4] - pop_f[r5])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_best_2(pop: np.ndarray, n_ind: int, F: float, current: int, best: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i not in (current, best)]
         r1, r2, r3, r4 = np.random.choice(idx, 4, replace=False)
-        mixture = pop[best] + F * (pop[r1] - pop[r2]) + F * (pop[r3] - pop[r4])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[best] + F * (pop_f[r1] - pop_f[r2]) + F * (pop_f[r3] - pop_f[r4])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_current_to_rand_2(pop: np.ndarray, n_ind: int, F: float, current: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3, r4, r5 = np.random.choice(idx, 5, replace=False)
-        mixture = pop[current] + F * (pop[r1] - pop[current]) + F * (pop[r2] - pop[r3]) + F * (pop[r4] - pop[r5])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[current] + F * (pop_f[r1] - pop_f[current]) + F * (pop_f[r2] - pop_f[r3]) + F * (pop_f[r4] - pop_f[r5])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_current_to_best_2(pop: np.ndarray, n_ind: int, F: float, current: int, best: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i not in (current, best)]
         r1, r2, r3, r4 = np.random.choice(idx, 4, replace=False)
-        mixture = pop[current] + F * (pop[best] - pop[current]) + F * (pop[r1] - pop[r2]) + F * (pop[r3] - pop[r4])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[current] + F * (pop_f[best] - pop_f[current]) + F * (pop_f[r1] - pop_f[r2]) + F * (pop_f[r3] - pop_f[r4])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
     def _mutate_rand_to_best_2(pop: np.ndarray, n_ind: int, F: float, current: int, best: int) -> list[int]:
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3, r4, r5 = np.random.choice(idx, 5, replace=False)
-        mixture = pop[r1] + F * (pop[best] - pop[current]) + F * (pop[r2] - pop[r3]) + F * (pop[r4] - pop[r5])
+        pop_f = pop.astype(float, copy=False)
+        mixture = pop_f[r1] + F * (pop_f[best] - pop_f[current]) + F * (pop_f[r2] - pop_f[r3]) + F * (pop_f[r4] - pop_f[r5])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     @staticmethod
@@ -174,7 +196,7 @@ class Differential(Heuristic):
 
         code = "DIFF"
         start_time = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         np.random.seed(None)
 
         population, scores, state = self.initialise_population()
@@ -251,4 +273,3 @@ class Differential(Heuristic):
             state.last_improvement,
             state.generation,
         )
-

@@ -9,11 +9,20 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, createDirectory
+from utility.utility import add, create_directory
 
 
 class Random(Heuristic):
-    """Randomly sample feature subsets for benchmarking."""
+    """Randomly sample feature subsets for benchmarking.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    N: int | None
+        Number of random individuals drawn per iteration (defaults to 100 in
+        the base class).
+    Gmax: int | None
+        Maximum number of random neighbourhood resamplings.
+    """
 
     def __init__(
         self,
@@ -35,7 +44,7 @@ class Random(Heuristic):
     ) -> None:
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
         self.path = Path(self.path) / ("rand" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def create_population(inds: int, size: int) -> np.ndarray:
@@ -54,7 +63,7 @@ class Random(Heuristic):
 
         code = "RAND"
         debut = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         print_out = ""
         np.random.seed(None)
 
@@ -124,4 +133,3 @@ class Random(Heuristic):
                     break
 
         return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same, G
-

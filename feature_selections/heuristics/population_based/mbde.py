@@ -11,11 +11,27 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, createDirectory, create_population, get_entropy
+from utility.utility import add, create_directory, create_population, get_entropy
 
 
 class Nmbde(Heuristic):
-    """Novel Modified Binary Differential Evolution heuristic."""
+    """Novel Modified Binary Differential Evolution heuristic.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    Fmax: float
+        Initial differential weight, annealed towards ``Fmin`` over time.
+    Fmin: float
+        Final differential weight reached at the end of the run.
+    CR: float
+        Binomial crossover rate.
+    strat: bool
+        When ``True`` use the DE/best/1 variant, otherwise DE/rand/1.
+    b: float
+        Bandwidth parameter used when converting mixtures to probabilities.
+    entropy: float | None
+        Restart threshold on the population entropy.
+    """
 
     def __init__(
         self,
@@ -49,7 +65,7 @@ class Nmbde(Heuristic):
         self.b = b
         self.entropy = entropy if entropy is not None else 0.05
         self.path = self.path / ("nmbde" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def _prob_est(mixture: np.ndarray, F: float, b: float) -> np.ndarray:
@@ -64,7 +80,8 @@ class Nmbde(Heuristic):
 
         idx = [i for i in range(len(population)) if i != current]
         r1, r2, r3 = np.random.choice(idx, 3, replace=False)
-        mixture = population[r1] + F * (population[r2] - population[r3])
+        pop_f = population.astype(float, copy=False)
+        mixture = pop_f[r1] + F * (pop_f[r2] - pop_f[r3])
         P_vec = Nmbde._prob_est(mixture, F, b)
         return [1 if random.random() < P_vec[i] else 0 for i in range(n_ind)]
 
@@ -74,7 +91,8 @@ class Nmbde(Heuristic):
 
         idx = [i for i in range(len(population)) if i not in (current, best)]
         r1, r2 = np.random.choice(idx, 2, replace=False)
-        mixture = population[best] + F * (population[r1] - population[r2])
+        pop_f = population.astype(float, copy=False)
+        mixture = pop_f[best] + F * (pop_f[r1] - pop_f[r2])
         P_vec = Nmbde._prob_est(mixture, F, b)
         return [1 if random.random() < P_vec[i] else 0 for i in range(n_ind)]
 
@@ -100,7 +118,7 @@ class Nmbde(Heuristic):
 
         code = "MBDE"
         start_time = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         np.random.seed(None)
 
         population, scores, state = self.initialise_population()
@@ -182,4 +200,3 @@ class Nmbde(Heuristic):
             state.last_improvement,
             state.generation,
         )
-

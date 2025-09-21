@@ -12,11 +12,27 @@ from typing import Sequence
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic, PopulationState
-from utility.utility import add, createDirectory, get_entropy
+from utility.utility import add, create_directory, get_entropy
 
 
 class Pbil(Heuristic):
-    """Population Based Incremental Learning heuristic."""
+    """Population Based Incremental Learning heuristic.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    LR: float
+        Learning rate that pulls the probability vector towards the best
+        samples.
+    MP: float
+        Mutation probability applied to each entry of the probability vector.
+    MS: float
+        Mutation shift magnitude when ``MP`` triggers.
+    n: int | None
+        Number of elite individuals averaged to update the probabilities
+        (defaults to 15% of ``N``).
+    entropy: float
+        Threshold under which the probability vector is reset to 0.5.
+    """
 
     def __init__(
         self,
@@ -48,7 +64,7 @@ class Pbil(Heuristic):
         self.n = n if n is not None else int(self.N * 0.15)
         self.entropy = entropy
         self.path = self.path / ("pbil" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def create_probas(size: int) -> list[float]:
@@ -112,7 +128,7 @@ class Pbil(Heuristic):
 
         code = "PBIL"
         start_time = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         np.random.seed(None)
 
         probas = self.create_probas(size=self.D)
@@ -182,4 +198,3 @@ class Pbil(Heuristic):
             state.last_improvement,
             state.generation,
         )
-

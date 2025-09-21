@@ -10,11 +10,20 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, createDirectory, create_population, diversification
+from utility.utility import add, create_directory, create_population, diversification
 
 
 class Tabu(Heuristic):
-    """Tabu search with diversification moves."""
+    """Tabu search with diversification moves.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    size: int | None
+        Size of the tabu list (defaults to ``N``).
+    nb: int | None
+        Diversification radius used when generating candidate neighbours;
+        negative values activate the power-law move generator.
+    """
 
     def __init__(
         self,
@@ -40,7 +49,7 @@ class Tabu(Heuristic):
         self.size = size if size is not None else self.N
         self.nb = nb if nb is not None else -1
         self.path = Path(self.path) / ("tabu" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def _is_in_tabu(individual: np.ndarray, tabu_list: deque[np.ndarray]) -> bool:
@@ -62,7 +71,7 @@ class Tabu(Heuristic):
 
         code = "TABU"
         debut = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         print_out = ""
         np.random.seed(None)
 
@@ -128,4 +137,3 @@ class Tabu(Heuristic):
                     break
 
         return scoreMax, indMax, subsetMax, timeMax, self.pipeline, pid, code, G - same, G
-

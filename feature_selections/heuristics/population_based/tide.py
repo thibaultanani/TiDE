@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import time
+import warnings
 from tempfile import TemporaryDirectory
 from datetime import timedelta
 from typing import Iterable, Sequence, Tuple
@@ -14,11 +15,23 @@ from sklearn.base import ClassifierMixin
 from feature_selections.filters import Filter
 from feature_selections.heuristics.heuristic import Heuristic, PopulationState
 from feature_selections.heuristics.single_solution import ForwardSelection
-from utility.utility import add, createDirectory, create_population, fitness, get_entropy
+from utility.utility import add, create_directory, create_population, fitness, get_entropy
 
 
 class Tide(Heuristic):
-    """Tournament in Differential Evolution feature selection heuristic."""
+    """Tournament in Differential Evolution feature selection heuristic.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    gamma: float | None
+        Controls the tournament pressure when choosing the guiding individual.
+    filter_init: bool | None
+        When ``True`` seed the initial population with the best filter ranking.
+    sfs_init: bool | None
+        When ``True`` seed the initial population with the SFS solution.
+    entropy: float | None
+        Population entropy threshold triggering diversification.
+    """
 
     def __init__(
         self,
@@ -35,6 +48,7 @@ class Tide(Heuristic):
         Gmax=None,
         gamma=None,
         filter_init=None,
+        sfs_init=None,
         sffs_init=None,
         entropy=None,
         suffix=None,
@@ -52,13 +66,20 @@ class Tide(Heuristic):
                 self.filter_str = " + ANOVA"
             else:
                 self.filter_str = " + CORRELATION"
-        if sffs_init is False:
-            self.sffs_init, self.sffs_str = False, ""
+        if sfs_init is None and sffs_init is not None:
+            warnings.warn(
+                "'sffs_init' is deprecated, use 'sfs_init' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            sfs_init = sffs_init
+        if sfs_init is False:
+            self.sfs_init, self.sfs_str = False, ""
         else:
-            self.sffs_init, self.sffs_str = True, " + SFFS"
+            self.sfs_init, self.sfs_str = True, " + SFS"
         self.entropy = entropy if entropy is not None else 0.05
         self.path = self.path / ("tide" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     def filter_initialisation(self) -> Sequence[int]:
         """Initialise the population with a filter-based ranking of features."""
@@ -121,7 +142,7 @@ class Tide(Heuristic):
                 cv=self.cv,
                 verbose=False,
                 output=tmp_output,
-                strat="sffs",
+                strat="sfs",
             )
 
             while generation < self.Gmax and improvement:
@@ -133,20 +154,9 @@ class Tide(Heuristic):
                 if timeout:
                     break
 
-                if selector.selected_features:
-                    back_improv, _, scoreMax, indMax, timeout = selector._backward_step(
-                        start_time=debut,
-                        scoreMax=scoreMax,
-                        indMax=indMax,
-                    )
-                    improvement = improvement or back_improv
-                    if timeout:
-                        break
-
                 generation += 1
                 if selector._time_exceeded(debut, self.Tmax):
                     break
-
         return indMax.tolist()
 
     @staticmethod
@@ -194,7 +204,7 @@ class Tide(Heuristic):
     ) -> None:
         """Serialise TiDE-specific metadata alongside the common heuristic summary."""
 
-        name = "Tournament In Differential" + self.filter_str + self.sffs_str
+        name = "Tournament In Differential" + self.filter_str + self.sfs_str
         string = "Gamma: " + str(self.gamma) + os.linesep
         self.save(name, bestInd, bestTime, g, t, last, string, out)
 
@@ -230,7 +240,7 @@ class Tide(Heuristic):
 
         code = "TIDE"
         start_time = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         np.random.seed(None)
 
         population = create_population(inds=self.N, size=self.D)
@@ -240,7 +250,7 @@ class Tide(Heuristic):
             r_filter = self.filter_initialisation()
             population[next_slot] = np.asarray(r_filter, dtype=bool)
             next_slot += 1
-        if self.sffs_init and next_slot < self.N:
+        if self.sfs_init and next_slot < self.N:
             r_forward = self.forward_initialisation()
             population[next_slot] = np.asarray(r_forward, dtype=bool)
             next_slot += 1
@@ -311,7 +321,7 @@ class Tide(Heuristic):
                 if r_filter is not None and inserted < self.N:
                     population[inserted] = np.asarray(r_filter, dtype=bool)
                     inserted += 1
-                if r_forward is not None and inserted < self.N:
+                if self.sfs_init and r_forward is not None and inserted < self.N:
                     population[inserted] = np.asarray(r_forward, dtype=bool)
                     inserted += 1
                 if inserted < self.N:

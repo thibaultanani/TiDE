@@ -20,14 +20,22 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler
 
 from feature_selections import FeatureSelection
-from utility import createDirectory, fitness
+from utility import create_directory, fitness
 
 
 ScoreListing = Sequence[Tuple[str, float]] | Sequence[float]
 
 
 class Filter(FeatureSelection):
-    """Parent implementation shared by the available filter methods."""
+    """Parent implementation shared by the available filter methods.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    method: str | None
+        Name of the ranking heuristic to apply. Accepted values are
+        ``'correlation'``, ``'anova'``, ``'mutual information'``, ``'mrmr'`` and
+        ``'surf'``.
+    """
 
     def __init__(
         self,
@@ -69,7 +77,7 @@ class Filter(FeatureSelection):
 
         self.method, self.func, self.v_name = self._resolve_strategy(method)
         self.path = Path(self.path) / f"{self.method.lower()}{self.suffix}"
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     def _resolve_estimator(self) -> BaseEstimator:
         """Return the final estimator from the provided pipeline."""
@@ -385,7 +393,7 @@ class Filter(FeatureSelection):
         """Execute the selected filter and evaluate incremental subsets."""
 
         debut = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         print_out = ""
         np.random.seed(None)
         score, col, vector, best_time = -np.inf, [], [], timedelta(seconds=0)
@@ -456,4 +464,3 @@ class Filter(FeatureSelection):
                     break
 
         return score, vector, col, best_time, self.pipeline, pid, self.v_name, generation - same, generation
-

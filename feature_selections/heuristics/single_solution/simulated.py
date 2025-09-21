@@ -10,11 +10,22 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import createDirectory
+from utility.utility import create_directory
 
 
 class SimulatedAnnealing(Heuristic):
-    """Simulated annealing with automatic temperature calibration."""
+    """Simulated annealing with automatic temperature calibration.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    p0: float
+        Initial acceptance probability used to calibrate the starting
+        temperature.
+    pf: float
+        Final acceptance probability driving the cooling schedule target.
+    seed: int | None
+        Optional random seed passed to the internal generator.
+    """
 
     def __init__(
         self,
@@ -39,7 +50,7 @@ class SimulatedAnnealing(Heuristic):
     ) -> None:
         super().__init__(name, target, pipeline, train, test, cv, drops, scoring, N, Gmax, Tmax, ratio, suffix, verbose, output)
         self.path = Path(self.path) / ("simulated_annealing" + self.suffix)
-        createDirectory(self.path)
+        create_directory(self.path)
         self.p0 = float(p0)
         self.pf = float(pf)
         self.rng = np.random.default_rng(seed)
@@ -97,7 +108,7 @@ class SimulatedAnnealing(Heuristic):
 
         code = "SA  "
         debut = time.time()
-        createDirectory(self.path)
+        create_directory(self.path)
         print_out = ""
         self.rng = np.random.default_rng()
 
@@ -190,4 +201,3 @@ class SimulatedAnnealing(Heuristic):
 
         selected_features = [self.cols[i] for i in range(self.D) if best[i] == 1]
         return best_score, best, selected_features, best_time, self.pipeline, pid, code, G - stagnation, G
-

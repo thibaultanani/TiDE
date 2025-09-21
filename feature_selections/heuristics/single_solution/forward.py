@@ -10,11 +10,18 @@ from typing import List, Sequence, Tuple
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import createDirectory, fitness
+from utility.utility import create_directory, fitness
 
 
 class ForwardSelection(Heuristic):
-    """Sequential (floating) forward selection."""
+    """Sequential (floating) forward selection.
+
+    Parameters specific to this strategy
+    -----------------------------------
+    strat: str | None
+        ``'sfs'`` enables vanilla forward selection, while ``'sffs'`` activates
+        the floating variant with backward pruning steps.
+    """
 
     def __init__(
         self,
@@ -41,7 +48,7 @@ class ForwardSelection(Heuristic):
         if self.strat not in {"sfs", "sffs"}:
             raise ValueError(f"Unknown strat '{strat}'. Expected 'sfs' or 'sffs'.")
         self.path = Path(self.path) / ("forward_selection" + self.suffix)
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
 
     @staticmethod
     def _time_exceeded(start_time: float, Tmax: float | None) -> bool:
@@ -132,7 +139,7 @@ class ForwardSelection(Heuristic):
 
         code = "SFS " if self.strat == "sfs" else "SFFS"
         debut = time.time()
-        createDirectory(path=self.path)
+        create_directory(path=self.path)
         print_out = ""
         np.random.seed(None)
         scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)

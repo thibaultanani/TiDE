@@ -45,6 +45,7 @@ class Tabu(Heuristic):
         verbose=None,
         output=None,
         warm_start=None,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -63,6 +64,7 @@ class Tabu(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.size = size if size is not None else self.N
         self.nb = nb if nb is not None else -1
@@ -91,9 +93,9 @@ class Tabu(Heuristic):
         debut = time.time()
         create_directory(path=self.path)
         print_out = ""
-        np.random.seed(None)
+        self.reset_rng()
 
-        population = create_population(inds=self.N, size=self.D).astype(bool)
+        population = create_population(inds=self.N, size=self.D, rng=self._rng).astype(bool)
         warm_mask = self._warm_start_mask.copy() if self._warm_start_mask is not None else None
         if warm_mask is not None:
             population[0] = warm_mask
@@ -117,7 +119,9 @@ class Tabu(Heuristic):
             scores: list[float] = []
             neighbourhood = []
             for _ in range(self.N):
-                neighbour = np.asarray(diversification(individual=bestInd.tolist(), distance=self.nb))
+                neighbour = np.asarray(
+                    diversification(individual=bestInd.tolist(), distance=self.nb, rng=self._rng)
+                )
                 if not self._is_in_tabu(neighbour, tabu_list):
                     neighbourhood.append(neighbour)
 

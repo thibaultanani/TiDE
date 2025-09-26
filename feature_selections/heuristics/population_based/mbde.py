@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import random
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -57,6 +56,7 @@ class Nmbde(Heuristic):
         verbose=None,
         output=None,
         warm_start=None,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -75,6 +75,7 @@ class Nmbde(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.Fmax = Fmax
         self.Fmin = Fmin
@@ -92,35 +93,34 @@ class Nmbde(Heuristic):
         denom = 1.0 + 2.0 * F
         return 1.0 / (1.0 + np.exp(-2.0 * b * (mixture - 0.5) / denom))
 
-    @staticmethod
-    def mutate_rand(population: np.ndarray, n_ind: int, F: float, current: int, b: float) -> list[int]:
+    def mutate_rand(self, population: np.ndarray, n_ind: int, F: float, current: int, b: float) -> list[int]:
         """DE/rand/1 mutation strategy."""
 
         idx = [i for i in range(len(population)) if i != current]
-        r1, r2, r3 = np.random.choice(idx, 3, replace=False)
+        r1, r2, r3 = self._rng.choice(idx, 3, replace=False)
         pop_f = population.astype(float, copy=False)
         mixture = pop_f[r1] + F * (pop_f[r2] - pop_f[r3])
         P_vec = Nmbde._prob_est(mixture, F, b)
-        return [1 if random.random() < P_vec[i] else 0 for i in range(n_ind)]
+        draws = self._rng.random(n_ind)
+        return [1 if draws[i] < P_vec[i] else 0 for i in range(n_ind)]
 
-    @staticmethod
-    def mutate_best(population: np.ndarray, n_ind: int, F: float, current: int, best: int, b: float) -> list[int]:
+    def mutate_best(self, population: np.ndarray, n_ind: int, F: float, current: int, best: int, b: float) -> list[int]:
         """DE/best/1 mutation strategy."""
 
         idx = [i for i in range(len(population)) if i not in (current, best)]
-        r1, r2 = np.random.choice(idx, 2, replace=False)
+        r1, r2 = self._rng.choice(idx, 2, replace=False)
         pop_f = population.astype(float, copy=False)
         mixture = pop_f[best] + F * (pop_f[r1] - pop_f[r2])
         P_vec = Nmbde._prob_est(mixture, F, b)
-        return [1 if random.random() < P_vec[i] else 0 for i in range(n_ind)]
+        draws = self._rng.random(n_ind)
+        return [1 if draws[i] < P_vec[i] else 0 for i in range(n_ind)]
 
-    @staticmethod
-    def crossover(n_ind: int, ind: np.ndarray, mutant: list[int], cross_proba: float) -> np.ndarray:
+    def crossover(self, n_ind: int, ind: np.ndarray, mutant: list[int], cross_proba: float) -> np.ndarray:
         """Perform binomial crossover between ``ind`` and ``mutant``."""
 
-        cross_points = np.random.rand(n_ind) <= cross_proba
+        cross_points = self._rng.random(n_ind) <= cross_proba
         child = np.where(cross_points, mutant, ind)
-        jrand = random.randint(0, n_ind - 1)
+        jrand = int(self._rng.integers(0, n_ind))
         child[jrand] = mutant[jrand]
         return child
 
@@ -137,7 +137,7 @@ class Nmbde(Heuristic):
         code = "MBDE"
         start_time = time.time()
         create_directory(path=self.path)
-        np.random.seed(None)
+        self.reset_rng()
 
         population, scores, state = self.initialise_population()
         bestScore, bestSubset, bestInd = (

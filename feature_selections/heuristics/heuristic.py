@@ -149,6 +149,7 @@ class Heuristic(FeatureSelection):
         verbose=None,
         output=None,
         warm_start: Optional[Sequence[str]] = None,
+        seed: Optional[int] = None,
     ) -> None:
         super().__init__(
             name,
@@ -166,6 +167,7 @@ class Heuristic(FeatureSelection):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.N = N if N is not None else 100
 
@@ -253,6 +255,7 @@ class Heuristic(FeatureSelection):
             scoring=self.scoring,
             ratio=self.ratio,
             cv=self.cv,
+            rng=self._rng,
         )
 
     def score(self, individual: Sequence[bool]) -> float:
@@ -272,7 +275,7 @@ class Heuristic(FeatureSelection):
     ) -> tuple[Sequence[np.ndarray], list[float], PopulationState]:
         """Initialise a random population and return its evaluated state."""
 
-        matrix = create_population(inds=self.N, size=self.D).astype(bool)
+        matrix = create_population(inds=self.N, size=self.D, rng=self._rng).astype(bool)
         if self._warm_start_mask is not None:
             matrix[0] = self._warm_start_mask
         if as_list:
@@ -300,7 +303,7 @@ class Heuristic(FeatureSelection):
     ) -> tuple[Sequence[np.ndarray], list[float], float, list[str], np.ndarray]:
         """Restart the population while keeping ``best_individual``."""
 
-        matrix = create_population(inds=self.N, size=self.D).astype(bool)
+        matrix = create_population(inds=self.N, size=self.D, rng=self._rng).astype(bool)
         if as_list:
             population: Sequence[np.ndarray] = [np.array(ind, copy=True) for ind in matrix]
             population[0] = _as_bool_array(best_individual)
@@ -411,6 +414,7 @@ class Heuristic(FeatureSelection):
                 scoring=self.scoring,
                 ratio=0,
                 cv=self.cv,
+                rng=self._rng,
             )
             if isinstance(estimator, ClassifierMixin):
                 tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
@@ -436,6 +440,7 @@ class Heuristic(FeatureSelection):
                 + f"Number of Features: {len(bestSubset)}" + os.linesep
                 + f"Number of Features (Ratio): {len(bestSubset) / len(self.cols)}" + os.linesep
                 + f"Execution Time: {round(t.total_seconds())} ({t})" + os.linesep
+                + f"Random Seed: {self._seed}" + os.linesep
                 + f"Memory: {psutil.virtual_memory()}"
             )
             f.write(string)

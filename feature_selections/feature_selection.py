@@ -7,6 +7,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from numpy.random import Generator, default_rng
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix, multilabel_confusion_matrix
 
 
@@ -30,6 +31,7 @@ class FeatureSelection:
         verbose: Optional[bool] = None,
         output: Optional[str] = None,
         warm_start: Optional[Sequence[str]] = None,
+        seed: Optional[int] = None,
     ) -> None:
         """Initialise a feature selection experiment.
 
@@ -76,6 +78,9 @@ class FeatureSelection:
             warm-starts, this subset seeds the initial individual (or
             probability vector for PBIL). Names not present in ``train`` are
             ignored.
+        seed:
+            Optional integer that seeds the pseudo-random number generator used
+            by stochastic selectors.
         """
 
         drops = list(drops or [])
@@ -98,6 +103,8 @@ class FeatureSelection:
         base_path.mkdir(parents=True, exist_ok=True)
         self.base_path = base_path
         self.path: Path = base_path
+        self._seed = seed if seed is None else int(seed)
+        self._rng: Generator = default_rng(self._seed)
 
         warm_features = list(dict.fromkeys(col for col in (warm_start or []) if col in self.cols))
         mask = np.zeros(self.D, dtype=bool)
@@ -130,3 +137,14 @@ class FeatureSelection:
         fp = int(multilabel_cm[:, 0, 1].sum())
         fn = int(multilabel_cm[:, 1, 0].sum())
         return tp, tn, fp, fn
+
+    def reset_rng(self) -> None:
+        """Reset the internal random generator to its initial seed."""
+
+        self._rng = default_rng(self._seed)
+
+    @property
+    def rng(self) -> Generator:
+        """Return the internal NumPy random generator."""
+
+        return self._rng

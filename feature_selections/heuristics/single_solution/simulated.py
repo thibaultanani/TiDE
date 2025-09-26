@@ -23,8 +23,9 @@ class SimulatedAnnealing(Heuristic):
         temperature.
     pf: float
         Final acceptance probability driving the cooling schedule target.
-    seed: int | None
-        Optional random seed passed to the internal generator.
+        seed: int | None
+        Optional random seed forwarded to the underlying pseudo-random
+        generator.
     """
 
     def __init__(
@@ -66,12 +67,12 @@ class SimulatedAnnealing(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.path = Path(self.path) / ("simulated_annealing" + self.suffix)
         create_directory(self.path)
         self.p0 = float(p0)
         self.pf = float(pf)
-        self.rng = np.random.default_rng(seed)
 
     @staticmethod
     def _time_exceeded(start_time: float, Tmax) -> bool:
@@ -79,11 +80,11 @@ class SimulatedAnnealing(Heuristic):
 
     def _ensure_non_empty(self, ind: np.ndarray) -> np.ndarray:
         if ind.sum() == 0:
-            ind[self.rng.integers(self.D)] = 1
+            ind[self._rng.integers(self.D)] = 1
         return ind
 
     def _random_mask(self) -> np.ndarray:
-        mask = (self.rng.random(self.D) < 0.5).astype(int)
+        mask = (self._rng.random(self.D) < 0.5).astype(int)
         return self._ensure_non_empty(mask)
 
     def _neighbor(self, ind: np.ndarray, schedule_progress: float) -> np.ndarray:
@@ -93,9 +94,9 @@ class SimulatedAnnealing(Heuristic):
         k_low = int(np.floor(k_float))
         k_high = min(kmax, k_low + 1)
         frac = k_float - k_low
-        flips = k_high if (self.rng.random() < frac) else k_low
+        flips = k_high if (self._rng.random() < frac) else k_low
         flips = max(1, flips)
-        idxs = self.rng.choice(self.D, size=flips, replace=False)
+        idxs = self._rng.choice(self.D, size=flips, replace=False)
         neigh[idxs] ^= 1
         return self._ensure_non_empty(neigh)
 
@@ -128,7 +129,7 @@ class SimulatedAnnealing(Heuristic):
         debut = time.time()
         create_directory(self.path)
         print_out = ""
-        self.rng = np.random.default_rng()
+        self.reset_rng()
 
         if self._warm_start_mask is not None:
             current = self._ensure_non_empty(self._warm_start_mask.astype(int))
@@ -162,7 +163,7 @@ class SimulatedAnnealing(Heuristic):
                 candidate_score = self._score(candidate)
                 scores.append(candidate_score)
                 delta = candidate_score - current_score
-                accept = delta >= 0 or self.rng.random() < math.exp(delta / max(temperature, 1e-12))
+                accept = delta >= 0 or self._rng.random() < math.exp(delta / max(temperature, 1e-12))
                 if accept:
                     current = candidate
                     current_score = candidate_score

@@ -42,6 +42,7 @@ class Random(Heuristic):
         verbose=None,
         output=None,
         warm_start=None,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -60,16 +61,17 @@ class Random(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.path = Path(self.path) / ("rand" + self.suffix)
         create_directory(path=self.path)
 
     @staticmethod
-    def create_population(inds: int, size: int) -> np.ndarray:
+    def create_population(inds: int, size: int, rng: np.random.Generator) -> np.ndarray:
         pop = np.zeros((inds, size), dtype=int)
         for i in range(inds):
-            num_true = np.random.randint(1, size)
-            true_indices = np.random.choice(size, size=num_true, replace=False)
+            num_true = int(rng.integers(1, size)) if size > 1 else 1
+            true_indices = rng.choice(size, size=num_true, replace=False)
             pop[i, true_indices] = 1
         return pop
 
@@ -83,9 +85,10 @@ class Random(Heuristic):
         debut = time.time()
         create_directory(path=self.path)
         print_out = ""
-        np.random.seed(None)
+        self.reset_rng()
+        rng = self._rng
 
-        population = self.create_population(inds=self.N, size=self.D)
+        population = self.create_population(inds=self.N, size=self.D, rng=rng)
         warm_mask = self._warm_start_mask.copy() if self._warm_start_mask is not None else None
         if warm_mask is not None:
             population[0] = warm_mask.astype(int)
@@ -119,7 +122,7 @@ class Random(Heuristic):
 
         while G < self.Gmax:
             instant = time.time()
-            neighbourhood = self.create_population(inds=self.N, size=self.D)
+            neighbourhood = self.create_population(inds=self.N, size=self.D, rng=rng)
             scores = self.score_population(neighbourhood)
             bestScore, bestSubset, bestInd = add(scores=scores, inds=neighbourhood, cols=self.cols)
             G += 1

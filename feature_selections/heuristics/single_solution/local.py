@@ -44,6 +44,7 @@ class LocalSearch(Heuristic):
         verbose=None,
         output=None,
         warm_start=None,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -62,6 +63,7 @@ class LocalSearch(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.size = size if size is not None else self.N
         self.nb = nb if nb is not None else -1
@@ -79,9 +81,9 @@ class LocalSearch(Heuristic):
         debut = time.time()
         create_directory(path=self.path)
         print_out = ""
-        np.random.seed(None)
+        self.reset_rng()
 
-        population = create_population(inds=self.N, size=self.D).astype(bool)
+        population = create_population(inds=self.N, size=self.D, rng=self._rng).astype(bool)
         warm_mask = self._warm_start_mask.copy() if self._warm_start_mask is not None else None
         if warm_mask is not None:
             population[0] = warm_mask
@@ -99,7 +101,10 @@ class LocalSearch(Heuristic):
         same = 0
         while G < self.Gmax:
             instant = time.time()
-            neighbourhood = [diversification(individual=indMax.tolist(), distance=self.nb) for _ in range(self.N)]
+            neighbourhood = [
+                diversification(individual=indMax.tolist(), distance=self.nb, rng=self._rng)
+                for _ in range(self.N)
+            ]
             neighbourhood = np.asarray(neighbourhood)
             scores = [self.score(ind) for ind in neighbourhood]
             bestScore, bestSubset, bestInd = add(scores=scores, inds=neighbourhood, cols=self.cols)

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import os
-import random
 import shutil
 from pathlib import Path
 from typing import List, Optional, Sequence
 
 import numpy as np
+from numpy.random import Generator
 import pandas as pd
 from sklearn.model_selection import cross_val_predict
 
@@ -109,21 +109,25 @@ def create_directory(path: DatasetPath) -> None:
     final_path.mkdir(parents=True, exist_ok=True)
 
 
-def create_population(inds: int, size: int) -> np.ndarray:
+def create_population(inds: int, size: int, rng: Generator | None = None) -> np.ndarray:
     """Return a boolean population matrix initialised at random."""
 
-    pop = np.random.rand(inds, size) < np.random.rand(inds, 1)
-    pop = pop[:, np.argsort(-np.random.rand(size), axis=0)]
+    rng = rng or np.random.default_rng()
+    thresholds = rng.random((inds, 1))
+    pop = rng.random((inds, size)) < thresholds
+    order = np.argsort(-rng.random(size), axis=0)
+    pop = pop[:, order]
     return pop.astype(bool)
 
 
-def _ensure_valid_individual(individual: Sequence[bool]) -> np.ndarray:
+def _ensure_valid_individual(individual: Sequence[bool], rng: Generator | None = None) -> np.ndarray:
     """Ensure that at least one feature is selected in ``individual``."""
 
     as_array = np.asarray(individual, dtype=bool)
     if not as_array.any():
         as_array = as_array.copy()
-        random_index = random.randrange(len(as_array))
+        rng = rng or np.random.default_rng()
+        random_index = int(rng.integers(0, len(as_array)))
         as_array[random_index] = True
     return as_array
 
@@ -144,6 +148,7 @@ def fitness(
     scoring,
     ratio: float,
     cv=None,
+    rng: Generator | None = None,
 ):
     """Evaluate an individual and return the penalised score and predictions.
 
@@ -154,7 +159,7 @@ def fitness(
         ``ratio`` hyper-parameter.
     """
 
-    selected = _ensure_valid_individual(ind)
+    selected = _ensure_valid_individual(ind, rng=rng)
     subset = _prepare_subset(columns, selected)
     train_sub = train[subset + [target]]
     X_train, y_train = train_sub.drop(columns=[target]), train_sub[target]
@@ -175,24 +180,29 @@ def fitness(
     return score, y_test.reset_index(drop=True), pd.Series(y_pred)
 
 
-def random_int_power(n: int, power: int = 2) -> int:
+def random_int_power(n: int, power: int = 2, rng: Generator | None = None) -> int:
     """Return an integer sampled from ``[1, n]`` with a power-law distribution."""
 
+    rng = rng or np.random.default_rng()
     weights = np.array([1 / (i**power) for i in range(1, n + 1)])
     weights = weights / weights.sum()
-    return int(np.random.choice(range(1, n + 1), p=weights))
+    choices = np.arange(1, n + 1)
+    return int(rng.choice(choices, p=weights))
 
 
-def diversification(individual: Sequence[int], distance: int) -> List[int]:
+def diversification(individual: Sequence[int], distance: int, rng: Generator | None = None) -> List[int]:
     """Create a neighbour by flipping ``distance`` random positions."""
 
+    rng = rng or np.random.default_rng()
     neighbor = list(individual)
     size = len(neighbor)
     if distance >= 0:
-        num_moves = random.randint(1, max(1, distance))
+        num_moves = int(rng.integers(1, max(1, distance) + 1))
     else:
-        num_moves = random_int_power(n=size, power=2)
-    move_indices = random.sample(range(size), num_moves)
+        num_moves = random_int_power(n=size, power=2, rng=rng)
+    if num_moves == 0:
+        return neighbor
+    move_indices = rng.choice(size, size=num_moves, replace=False)
     for idx in move_indices:
         neighbor[idx] = 1 - neighbor[idx]
     return neighbor

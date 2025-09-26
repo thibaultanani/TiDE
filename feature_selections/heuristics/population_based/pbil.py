@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import random
 import time
 from copy import copy
 from datetime import timedelta
@@ -64,6 +63,7 @@ class Pbil(Heuristic):
         warm_start=None,
         warm_start_prob: float = 0.8,
         warm_start_cold_prob: float = 0.2,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -82,6 +82,7 @@ class Pbil(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.LR = LR
         self.MP = MP
@@ -122,23 +123,22 @@ class Pbil(Heuristic):
 
         return [(p * (1.0 - LR)) + (LR * b) for p, b in zip(probas, bests)]
 
-    @staticmethod
-    def mutate_probas(probas: Sequence[float], MP: float, MS: float) -> list[float]:
+    def mutate_probas(self, probas: Sequence[float], MP: float, MS: float) -> list[float]:
         """Randomly perturb the probability vector to avoid stagnation."""
 
         mutated = list(probas)
         for i in range(len(mutated)):
-            if random.random() < MP:
-                mutated[i] = (mutated[i] * (1.0 - MS)) + (MS * random.choice([1.0, 0.0]))
+            if self._rng.random() < MP:
+                mutated[i] = (mutated[i] * (1.0 - MS)) + (MS * self._rng.choice([1.0, 0.0]))
         return mutated
 
-    @staticmethod
-    def sample_population(inds: int, size: int, probas: Sequence[float]) -> list[list[int]]:
+    def sample_population(self, inds: int, size: int, probas: Sequence[float]) -> list[list[int]]:
         """Sample ``inds`` individuals according to ``probas``."""
 
         population = []
         for _ in range(inds):
-            individual = [1 if random.random() < probas[j] else 0 for j in range(size)]
+            draws = self._rng.random(size)
+            individual = [1 if draws[j] < probas[j] else 0 for j in range(size)]
             population.append(individual)
         return population
 
@@ -165,7 +165,7 @@ class Pbil(Heuristic):
         code = "PBIL"
         start_time = time.time()
         create_directory(path=self.path)
-        np.random.seed(None)
+        self.reset_rng()
 
         probas = self.create_probas(
             size=self.D,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import random
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -47,6 +46,7 @@ class Genetic(Heuristic):
         verbose=None,
         output=None,
         warm_start=None,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -65,6 +65,7 @@ class Genetic(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.mutation = mutation if mutation is not None else -1
         self.entropy = entropy if entropy is not None else 0.05
@@ -89,11 +90,10 @@ class Genetic(Heuristic):
         ranks = self.get_ranks(scores)
         total_rank = sum(ranks)
         probabilities = [rank / total_rank for rank in ranks]
-        selected_indices = np.random.choice(len(population), n_select, p=probabilities, replace=False)
+        selected_indices = self._rng.choice(len(population), n_select, p=probabilities, replace=False)
         return [population[i] for i in selected_indices], [scores[i] for i in selected_indices]
 
-    @staticmethod
-    def roulette_selection(population: Sequence[np.ndarray], scores: Sequence[float]) -> Tuple[np.ndarray, np.ndarray]:
+    def roulette_selection(self, population: Sequence[np.ndarray], scores: Sequence[float]) -> Tuple[np.ndarray, np.ndarray]:
         """Return two parents sampled proportionally to ``scores``."""
 
         min_score = min(scores)
@@ -106,32 +106,32 @@ class Genetic(Heuristic):
             probabilities = [1 / len(scores)] * len(scores)
         else:
             probabilities = [s / total_score for s in shifted_scores]
-        selected_indices = np.random.choice(len(population), 2, p=probabilities, replace=False)
+        selected_indices = self._rng.choice(len(population), 2, p=probabilities, replace=False)
         return population[selected_indices[0]], population[selected_indices[1]]
 
-    @staticmethod
-    def crossover(parent1: np.ndarray, parent2: np.ndarray) -> list[int]:
+    def crossover(self, parent1: np.ndarray, parent2: np.ndarray) -> list[int]:
         """Perform a two-point crossover between ``parent1`` and ``parent2``."""
 
         p1 = parent1.tolist()
         p2 = parent2.tolist()
-        if random.random() < 0.5:
+        if self._rng.random() < 0.5:
             p1, p2 = p2, p1
-        point1 = random.randint(0, len(p1) - 1)
-        point2 = random.randint(point1, len(p1) - 1)
+        point1 = int(self._rng.integers(0, len(p1)))
+        point2 = int(self._rng.integers(point1, len(p1)))
         return p1[:point1] + p2[point1:point2] + p1[point2:]
 
-    @staticmethod
-    def mutate(individual: Sequence[int], mutation: int) -> list[int]:
+    def mutate(self, individual: Sequence[int], mutation: int) -> list[int]:
         """Flip ``mutation`` random bits (power-law distributed when ``mutation`` < 0)."""
 
         mutant = list(individual)
         size = len(mutant)
         if mutation >= 0:
-            num_moves = random.randint(0, mutation)
+            num_moves = int(self._rng.integers(0, mutation + 1))
         else:
-            num_moves = random_int_power(n=size + 1, power=2) - 1
-        move_indices = random.sample(range(size), num_moves)
+            num_moves = random_int_power(n=size + 1, power=2, rng=self._rng) - 1
+        if num_moves <= 0:
+            return mutant
+        move_indices = self._rng.choice(size, size=num_moves, replace=False)
         for idx in move_indices:
             mutant[idx] = 1 - mutant[idx]
         return mutant
@@ -146,7 +146,7 @@ class Genetic(Heuristic):
         code = "GENE"
         start_time = time.time()
         create_directory(path=self.path)
-        np.random.seed(None)
+        self.reset_rng()
 
         population, scores, state = self.initialise_population(as_list=True)
 

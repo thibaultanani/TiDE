@@ -55,6 +55,7 @@ class Filter(FeatureSelection):
         output=None,
         method: str | None = None,
         warm_start: Sequence[str] | None = None,
+        seed: int | None = None,
     ) -> None:
         super().__init__(
             name,
@@ -72,6 +73,7 @@ class Filter(FeatureSelection):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
 
         self._estimator = self._resolve_estimator()
@@ -176,6 +178,7 @@ class Filter(FeatureSelection):
                 scoring=self.scoring,
                 ratio=0,
                 cv=self.cv,
+                rng=self._rng,
             )
             if isinstance(self._estimator, ClassifierMixin):
                 tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
@@ -397,7 +400,7 @@ class Filter(FeatureSelection):
         debut = time.time()
         create_directory(path=self.path)
         print_out = ""
-        np.random.seed(None)
+        self.reset_rng()
         score, col, vector, best_time = -np.inf, [], [], timedelta(seconds=0)
         same = 0
 
@@ -424,6 +427,7 @@ class Filter(FeatureSelection):
                 scoring=self.scoring,
                 ratio=self.ratio,
                 cv=self.cv,
+                rng=self._rng,
             )[0]
             time_instant = timedelta(seconds=(time.time() - instant))
             time_debut = timedelta(seconds=(time.time() - debut))

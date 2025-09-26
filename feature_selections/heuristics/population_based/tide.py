@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import random
 import time
 import warnings
 from tempfile import TemporaryDirectory
@@ -56,6 +55,7 @@ class Tide(Heuristic):
         verbose=None,
         output=None,
         warm_start=None,
+        seed=None,
     ):
         super().__init__(
             name,
@@ -74,6 +74,7 @@ class Tide(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.gamma = gamma if gamma is not None else 0.8
         if filter_init is False:
@@ -128,6 +129,7 @@ class Tide(Heuristic):
                 scoring=self.scoring,
                 ratio=self.ratio,
                 cv=self.cv,
+                rng=self._rng,
             )[0]
             if score > best_score:
                 best_score, best_vector = score, candidate
@@ -161,6 +163,7 @@ class Tide(Heuristic):
                 verbose=False,
                 output=tmp_output,
                 strat="sfs",
+                seed=self._seed,
             )
 
             while generation < self.Gmax and improvement:
@@ -177,11 +180,10 @@ class Tide(Heuristic):
                     break
         return indMax.tolist()
 
-    @staticmethod
-    def mutate(P: Sequence[Sequence[bool]], n_ind: int, current: int, tbest: int) -> list[int]:
+    def mutate(self, P: Sequence[Sequence[bool]], n_ind: int, current: int, tbest: int) -> list[int]:
         """Mutate an individual following the TiDE mutation operator."""
 
-        selected = np.random.choice([i for i in range(len(P)) if i != current and i != tbest], 2, replace=False)
+        selected = self._rng.choice([i for i in range(len(P)) if i != current and i != tbest], 2, replace=False)
         Xr1, Xr2, Xr3 = P[tbest], P[selected[0]], P[selected[1]]
         mutant = []
         for chromosome in range(n_ind):
@@ -191,24 +193,22 @@ class Tide(Heuristic):
                 mutant.append(Xr2[chromosome])
         return mutant
 
-    @staticmethod
-    def crossover(n_ind: int, ind: Sequence[int], mutant: Sequence[int], cross_proba: float) -> np.ndarray:
+    def crossover(self, n_ind: int, ind: Sequence[int], mutant: Sequence[int], cross_proba: float) -> np.ndarray:
         """Perform a binomial crossover between parent and mutant."""
 
-        cross_points = np.random.rand(n_ind) <= cross_proba
+        cross_points = self._rng.random(n_ind) <= cross_proba
         child = np.where(cross_points, mutant, ind)
-        jrand = random.randint(0, n_ind - 1)
+        jrand = int(self._rng.integers(0, n_ind))
         child[jrand] = mutant[jrand]
         return child
 
-    @staticmethod
-    def tournament(scores: Sequence[float], entropy: float, gamma: float) -> int:
+    def tournament(self, scores: Sequence[float], entropy: float, gamma: float) -> int:
         """Return the index of the best individual selected by tournament."""
 
         p = (1 - entropy) * (1 - gamma) + gamma
         nb_scores = max(2, int(len(scores) * p))
-        selected = random.choices(scores, k=nb_scores)
-        score_max = np.amax(selected)
+        selected = self._rng.choice(scores, size=nb_scores, replace=True)
+        score_max = float(np.amax(selected))
         return scores.index(score_max)
 
     def specifics(
@@ -239,6 +239,7 @@ class Tide(Heuristic):
             scoring=self.scoring,
             ratio=self.ratio,
             cv=self.cv,
+            rng=self._rng,
         )[0]
 
     def _score_population(self, population: Iterable[Sequence[bool]]) -> list[float]:
@@ -259,9 +260,9 @@ class Tide(Heuristic):
         code = "TIDE"
         start_time = time.time()
         create_directory(path=self.path)
-        np.random.seed(None)
+        self.reset_rng()
 
-        population = create_population(inds=self.N, size=self.D).astype(bool)
+        population = create_population(inds=self.N, size=self.D, rng=self._rng).astype(bool)
         next_slot = 0
         r_filter, r_forward = None, None
         warm_vector = self._warm_start_mask.copy() if self._warm_start_mask is not None else None
@@ -312,7 +313,7 @@ class Tide(Heuristic):
                 Vi = self.mutate(P=population, n_ind=self.D, current=i, tbest=tbest)
                 score_i = max(scores[i], 0)
                 alpha, beta_param = (2 - score_i) * 2, (1 + score_i) * 2
-                CR = beta.rvs(alpha, beta_param)
+                CR = beta.rvs(alpha, beta_param, random_state=self._rng)
                 Ui = self.crossover(n_ind=self.D, ind=population[i], mutant=Vi, cross_proba=CR)
                 if np.array_equal(population[i], Ui):
                     score_trial = scores[i]
@@ -344,7 +345,7 @@ class Tide(Heuristic):
             )
 
             if entropy < self.entropy:
-                population = create_population(inds=self.N, size=self.D).astype(bool)
+                population = create_population(inds=self.N, size=self.D, rng=self._rng).astype(bool)
                 inserted = 0
                 if r_filter is not None and inserted < self.N:
                     population[inserted] = np.asarray(r_filter, dtype=bool)

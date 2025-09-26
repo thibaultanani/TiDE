@@ -42,6 +42,7 @@ class ForwardSelection(Heuristic):
         output=None,
         strat=None,
         warm_start=None,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -60,6 +61,7 @@ class ForwardSelection(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         self.selected_features: List[str] = list(self.warm_start_features)
         self.strat = (strat or "sffs").strip().lower()
@@ -87,6 +89,7 @@ class ForwardSelection(Heuristic):
             scoring=self.scoring,
             ratio=self.ratio,
             cv=self.cv,
+            rng=self._rng,
         )[0]
         return score, candidate
 
@@ -159,7 +162,7 @@ class ForwardSelection(Heuristic):
         debut = time.time()
         create_directory(path=self.path)
         print_out = ""
-        np.random.seed(None)
+        self.reset_rng()
         if self.selected_features:
             scoreMax, indArray = self._evaluate_candidate(self.selected_features)
             indMax = indArray

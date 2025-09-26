@@ -42,6 +42,7 @@ class BackwardSelection(Heuristic):
         output=None,
         strat=None,
         warm_start=None,
+        seed=None,
     ) -> None:
         super().__init__(
             name,
@@ -60,6 +61,7 @@ class BackwardSelection(Heuristic):
             verbose,
             output,
             warm_start=warm_start,
+            seed=seed,
         )
         initial = self.warm_start_features if self.warm_start_features else self.cols.tolist()
         self.selected_features: List[str] = list(dict.fromkeys(initial))
@@ -87,6 +89,7 @@ class BackwardSelection(Heuristic):
             scoring=self.scoring,
             ratio=self.ratio,
             cv=self.cv,
+            rng=self._rng,
         )[0]
         return score, candidate
 
@@ -159,7 +162,7 @@ class BackwardSelection(Heuristic):
         debut = time.time()
         create_directory(path=self.path)
         print_out = ""
-        np.random.seed(None)
+        self.reset_rng()
 
         scoreMax, indMax = self._evaluate_candidate(self.selected_features)
         G = 0

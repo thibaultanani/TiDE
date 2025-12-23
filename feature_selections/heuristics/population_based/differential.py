@@ -208,6 +208,8 @@ class Differential(Heuristic):
         self.reset_rng()
 
         population, scores, state = self.initialise_population()
+        self.reset_tracking()
+        self.track_best(state.tracker.score, self.elapsed_since(start_time), len(state.tracker.subset))
         strategy = self._strategy_map()[self.strat]
         bestScore, bestSubset, bestInd = (
             state.current_score,

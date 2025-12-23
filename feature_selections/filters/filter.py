@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
+from functools import partial
 from datetime import timedelta
 from pathlib import Path
 from typing import Callable, List, Sequence, Tuple
@@ -82,6 +84,41 @@ class Filter(FeatureSelection):
         self.method, self.func, self.v_name = self._resolve_strategy(method)
         self.path = Path(self.path) / f"{self.method.lower()}{self.suffix}"
         create_directory(path=self.path)
+        self._best_history: list[tuple[float, float, int]] = []
+
+    def reset_tracking(self) -> None:
+        """Clear the time-to-best tracking history."""
+
+        self._best_history = []
+
+    def track_best(self, score: float, time_total: timedelta, n_features: int) -> None:
+        """Record a new best score with its elapsed time."""
+
+        if not np.isfinite(score):
+            return
+        elapsed = float(time_total.total_seconds())
+        if not self._best_history:
+            self._best_history.append((elapsed, float(score), int(n_features)))
+            return
+        if score > self._best_history[-1][1]:
+            self._best_history.append((elapsed, float(score), int(n_features)))
+
+    def _write_best_points(self) -> Path:
+        """Write the record points (time, score, feature count) as JSON."""
+
+        points_path = Path(self.path) / "time_to_best_points.json"
+        if not self._best_history:
+            points: list[dict[str, float | int]] = []
+        else:
+            points = []
+            last_time = -1.0
+            for elapsed, score, n_features in self._best_history:
+                monotone_time = max(elapsed, last_time)
+                last_time = monotone_time
+                points.append({"t": monotone_time, "s": score, "p": int(n_features)})
+        with points_path.open("w", encoding="utf-8") as f:
+            json.dump(points, f, ensure_ascii=True)
+        return points_path
 
     def _resolve_estimator(self) -> BaseEstimator:
         """Return the final estimator from the provided pipeline."""
@@ -95,27 +132,12 @@ class Filter(FeatureSelection):
 
         method_key = (method or "Correlation").strip().lower()
 
-        def correlation(df: pd.DataFrame, target: str) -> tuple[List[str], ScoreListing]:
-            return self.correlation_selection(df=df, target=target)
-
-        def anova(df: pd.DataFrame, target: str) -> tuple[List[str], ScoreListing]:
-            return self.anova_selection(df=df, target=target)
-
-        def mutual_info(df: pd.DataFrame, target: str) -> tuple[List[str], ScoreListing]:
-            return self.mutual_info_selection(df=df, target=target)
-
-        def mrmr(df: pd.DataFrame, target: str) -> tuple[List[str], ScoreListing]:
-            return self.mrmr_selection(df=df, target=target, is_quantitative=self.quantitative)
-
-        def surf(df: pd.DataFrame, target: str) -> tuple[List[str], ScoreListing]:
-            return self.surf_selection(df=df, target=target, is_quantitative=self.quantitative)
-
         strategies = {
-            "correlation": ("Correlation", correlation, "CORR"),
-            "anova": ("Anova", anova, "ANOV"),
-            "mutual information": ("Mutual Information", mutual_info, "MI  "),
-            "mrmr": ("MRMR", mrmr, "MRMR"),
-            "surf": ("SURF", surf, "SURF"),
+            "correlation": ("Correlation", Filter.correlation_selection, "CORR"),
+            "anova": ("Anova", Filter.anova_selection, "ANOV"),
+            "mutual information": ("Mutual Information", Filter.mutual_info_selection, "MI  "),
+            "mrmr": ("MRMR", partial(Filter.mrmr_selection, is_quantitative=self.quantitative), "MRMR"),
+            "surf": ("SURF", partial(Filter.surf_selection, is_quantitative=self.quantitative), "SURF"),
         }
 
         if method_key not in strategies:
@@ -187,6 +209,7 @@ class Filter(FeatureSelection):
                 string_tmp = f"Regression residuals (first 5): {(y_true - y_pred).head().tolist()}" + os.linesep
             else:
                 string_tmp = ""
+            points_path = self._write_best_points()
             string = (
                 f"Filter: {name}"
                 + os.linesep
@@ -216,6 +239,8 @@ class Filter(FeatureSelection):
                 + f"Score of Features: {scores}"
                 + os.linesep
                 + f"Execution Time: {round(t.total_seconds())} ({t})"
+                + os.linesep
+                + f"Time-to-best points: {points_path.name}"
                 + os.linesep
                 + f"Memory: {psutil.virtual_memory()}"
             )
@@ -403,12 +428,10 @@ class Filter(FeatureSelection):
         self.reset_rng()
         score, col, vector, best_time = -np.inf, [], [], timedelta(seconds=0)
         same = 0
+        self.reset_tracking()
 
         sorted_features, filter_scores = self.func(self.train, self.target)
-        percentiles = [val for val in range(1, 101)]
-        num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in percentiles]
-        num_features = [val for val in num_features if val >= 1]
-        num_features = list(dict.fromkeys(num_features))
+        num_features = list(range(1, len(sorted_features) + 1))
 
         generation = 0
         for generation, feature_count in enumerate(num_features, start=1):
@@ -437,6 +460,7 @@ class Filter(FeatureSelection):
                 vector = candidate
                 best_time = time_debut
                 col = [self.cols[i] for i in range(len(self.cols)) if vector[i]]
+                self.track_best(score, time_debut, len(col))
             else:
                 same += 1
             print_out = self.print_(

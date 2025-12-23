@@ -149,6 +149,8 @@ class Genetic(Heuristic):
         self.reset_rng()
 
         population, scores, state = self.initialise_population(as_list=True)
+        self.reset_tracking()
+        self.track_best(state.tracker.score, self.elapsed_since(start_time), len(state.tracker.subset))
 
         while state.generation < self.Gmax:
             instant = time.time()

@@ -140,6 +140,8 @@ class Nmbde(Heuristic):
         self.reset_rng()
 
         population, scores, state = self.initialise_population()
+        self.reset_tracking()
+        self.track_best(state.tracker.score, self.elapsed_since(start_time), len(state.tracker.subset))
         bestScore, bestSubset, bestInd = (
             state.current_score,
             state.current_subset,

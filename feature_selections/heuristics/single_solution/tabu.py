@@ -108,6 +108,8 @@ class Tabu(Heuristic):
                 bestSubset = self.warm_start_features
                 bestInd = warm_mask
         scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, timedelta(seconds=0)
+        self.reset_tracking()
+        self.track_best(scoreMax, timedelta(seconds=(time.time() - debut)), len(subsetMax))
 
         tabu_list: deque[np.ndarray] = deque(maxlen=self.size)
         tabu_list = self._insert_tabu(tabu_list, indMax, self.size)
@@ -138,6 +140,7 @@ class Tabu(Heuristic):
             if bestScore > scoreMax:
                 same = 0
                 scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_total
+                self.track_best(scoreMax, time_total, len(subsetMax))
             print_out = self.sprint_(
                 print_out=print_out,
                 name=code,

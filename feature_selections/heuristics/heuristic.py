@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import abc
+import json
+import math
 import os
 import time
 from dataclasses import dataclass, field
@@ -170,6 +172,24 @@ class Heuristic(FeatureSelection):
             seed=seed,
         )
         self.N = N if N is not None else 100
+        self._best_history: list[tuple[float, float, int]] = []
+
+    def reset_tracking(self) -> None:
+        """Clear the time-to-best tracking history."""
+
+        self._best_history = []
+
+    def track_best(self, score: float, time_total: timedelta, n_features: int) -> None:
+        """Record a new best score with its elapsed time."""
+
+        if not math.isfinite(score):
+            return
+        elapsed = float(time_total.total_seconds())
+        if not self._best_history:
+            self._best_history.append((elapsed, float(score), int(n_features)))
+            return
+        if score > self._best_history[-1][1]:
+            self._best_history.append((elapsed, float(score), int(n_features)))
 
     @abc.abstractmethod
     def start(self, pid: int) -> tuple[Any, ...]:
@@ -332,6 +352,7 @@ class Heuristic(FeatureSelection):
     ) -> None:
         """Pretty-print and buffer the progression information for ``state``."""
 
+        self.track_best(state.tracker.score, time_total, len(state.tracker.subset))
         if entropy is None:
             line = self.sprint_(
                 print_out="",
@@ -375,6 +396,23 @@ class Heuristic(FeatureSelection):
         """Return ``True`` when the time budget has been exhausted."""
 
         return (time.time() - start_time) >= self.Tmax
+
+    def _write_best_points(self) -> Path:
+        """Write the record points (time, score, feature count) as JSON."""
+
+        points_path = Path(self.path) / "time_to_best_points.json"
+        if not self._best_history:
+            points: list[dict[str, float | int]] = []
+        else:
+            points = []
+            last_time = -1.0
+            for elapsed, score, n_features in self._best_history:
+                monotone_time = max(elapsed, last_time)
+                last_time = monotone_time
+                points.append({"t": monotone_time, "s": score, "p": int(n_features)})
+        with points_path.open("w", encoding="utf-8") as f:
+            json.dump(points, f, ensure_ascii=True)
+        return points_path
 
     def save(
         self,
@@ -423,6 +461,8 @@ class Heuristic(FeatureSelection):
                 string_tmp = f"Regression residuals (first 5): {(y_true - y_pred).head().tolist()}" + os.linesep
             else:
                 string_tmp = ""
+            avg_iter = t.total_seconds() / g if g else 0.0
+            points_path = self._write_best_points()
             string = (
                 f"Heuristic: {name}" + os.linesep
                 + f"Population: {self.N}" + os.linesep
@@ -440,6 +480,8 @@ class Heuristic(FeatureSelection):
                 + f"Number of Features: {len(bestSubset)}" + os.linesep
                 + f"Number of Features (Ratio): {len(bestSubset) / len(self.cols)}" + os.linesep
                 + f"Execution Time: {round(t.total_seconds())} ({t})" + os.linesep
+                + f"Average Time per Iteration: {avg_iter:.6f} s" + os.linesep
+                + f"Time-to-best points: {points_path.name}" + os.linesep
                 + f"Random Seed: {self._seed}" + os.linesep
                 + f"Memory: {psutil.virtual_memory()}"
             )

@@ -96,6 +96,8 @@ class LocalSearch(Heuristic):
                 bestSubset = self.warm_start_features
                 bestInd = warm_mask
         scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, timedelta(seconds=0)
+        self.reset_tracking()
+        self.track_best(scoreMax, timedelta(seconds=(time.time() - debut)), len(subsetMax))
 
         G = 0
         same = 0
@@ -116,6 +118,7 @@ class LocalSearch(Heuristic):
             if bestScore > scoreMax:
                 same = 0
                 scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, time_total
+                self.track_best(scoreMax, time_total, len(subsetMax))
             print_out = self.sprint_(
                 print_out=print_out,
                 name=code,

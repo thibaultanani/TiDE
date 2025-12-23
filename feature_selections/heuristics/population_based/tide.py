@@ -13,6 +13,7 @@ from sklearn.base import ClassifierMixin
 
 from feature_selections.filters import Filter
 from feature_selections.heuristics.heuristic import Heuristic, PopulationState
+from feature_selections.heuristics.population_based.differential import Differential
 from feature_selections.heuristics.single_solution import ForwardSelection
 from utility.utility import add, create_directory, create_population, fitness, get_entropy
 
@@ -24,6 +25,14 @@ class Tide(Heuristic):
     -----------------------------------
     gamma: float | None
         Controls the tournament pressure when choosing the guiding individual.
+    CR: float | None
+        Optional fixed crossover rate. When provided, uses the classic
+        binomial crossover rate instead of the adaptive Beta distribution.
+    strat: str | None
+        Optional differential evolution mutation strategy label. When
+        provided, TiDE uses the corresponding DE mutation operator.
+    F: float | None
+        Differential weight used by DE-style mutations (only when ``strat`` is set).
     filter_init: bool | None
         When ``True`` seed the initial population with the best filter ranking.
     sfs_init: bool | None
@@ -46,6 +55,9 @@ class Tide(Heuristic):
         N=None,
         Gmax=None,
         gamma=None,
+        CR=None,
+        strat=None,
+        F=None,
         filter_init=None,
         sfs_init=None,
         sffs_init=None,
@@ -77,6 +89,30 @@ class Tide(Heuristic):
             seed=seed,
         )
         self.gamma = gamma if gamma is not None else 0.8
+        if CR is not None:
+            if not 0.0 <= float(CR) <= 1.0:
+                raise ValueError("CR must be between 0 and 1 when provided.")
+            self.CR = float(CR)
+        else:
+            self.CR = None
+        valid = {
+            "rand/1",
+            "best/1",
+            "current-to-rand/1",
+            "current-to-best/1",
+            "rand-to-best/1",
+            "rand/2",
+            "best/2",
+            "current-to-rand/2",
+            "current-to-best/2",
+            "rand-to-best/2",
+        }
+        if strat is not None:
+            strat = str(strat).strip()
+            if strat not in valid:
+                raise ValueError(f"strat '{strat}' invalid. Choose from {sorted(valid)}.")
+        self.strat = strat
+        self.F = 1.0 if F is None else float(F)
         if filter_init is False:
             self.filter_init, self.filter_str = False, ""
         else:
@@ -193,6 +229,20 @@ class Tide(Heuristic):
                 mutant.append(Xr2[chromosome])
         return mutant
 
+    def _strategy_map(self):
+        return {
+            "rand/1": lambda pop, n, F, i, best: Differential._mutate_rand(self, pop, n, F, i),
+            "best/1": lambda pop, n, F, i, best: Differential._mutate_best(self, pop, n, F, i, best),
+            "current-to-rand/1": lambda pop, n, F, i, best: Differential._mutate_current_to_rand_1(self, pop, n, F, i),
+            "current-to-best/1": lambda pop, n, F, i, best: Differential._mutate_current_to_best_1(self, pop, n, F, i, best),
+            "rand-to-best/1": lambda pop, n, F, i, best: Differential._mutate_rand_to_best_1(self, pop, n, F, i, best),
+            "rand/2": lambda pop, n, F, i, best: Differential._mutate_rand_2(self, pop, n, F, i),
+            "best/2": lambda pop, n, F, i, best: Differential._mutate_best_2(self, pop, n, F, i, best),
+            "current-to-rand/2": lambda pop, n, F, i, best: Differential._mutate_current_to_rand_2(self, pop, n, F, i),
+            "current-to-best/2": lambda pop, n, F, i, best: Differential._mutate_current_to_best_2(self, pop, n, F, i, best),
+            "rand-to-best/2": lambda pop, n, F, i, best: Differential._mutate_rand_to_best_2(self, pop, n, F, i, best),
+        }
+
     def crossover(self, n_ind: int, ind: Sequence[int], mutant: Sequence[int], cross_proba: float) -> np.ndarray:
         """Perform a binomial crossover between parent and mutant."""
 
@@ -223,7 +273,18 @@ class Tide(Heuristic):
         """Serialise TiDE-specific metadata alongside the common heuristic summary."""
 
         name = "Tournament In Differential" + self.filter_str + self.sfs_str
-        string = "Gamma: " + str(self.gamma) + os.linesep
+        string = (
+            "Gamma: "
+            + str(self.gamma)
+            + os.linesep
+            + "Crossover rate: "
+            + (str(self.CR) if self.CR is not None else "adaptive")
+            + os.linesep
+            + "Mutation strategy: "
+            + (self.strat if self.strat is not None else "tide")
+            + os.linesep
+            + ("F factor: " + str(self.F) + os.linesep if self.strat is not None else "")
+        )
         self.save(name, bestInd, bestTime, g, t, last, string, out)
 
     def _score_individual(self, ind: Sequence[bool]) -> float:
@@ -287,6 +348,7 @@ class Tide(Heuristic):
                 bestSubset = self.warm_start_features
                 bestInd = warm_vector
         state = PopulationState.from_best(bestScore, bestSubset, bestInd)
+        self.reset_tracking()
 
         initial_timer = time.time()
         mean_scores = float(np.mean(scores))
@@ -306,14 +368,21 @@ class Tide(Heuristic):
             entropy=entropy,
         )
 
+        strategy = self._strategy_map()[self.strat] if self.strat is not None else None
         while state.generation < self.Gmax:
             instant = time.time()
             for i in range(self.N):
-                tbest = self.tournament(scores=scores, entropy=entropy, gamma=self.gamma)
-                Vi = self.mutate(P=population, n_ind=self.D, current=i, tbest=tbest)
-                score_i = max(scores[i], 0)
-                alpha, beta_param = (2 - score_i) * 2, (1 + score_i) * 2
-                CR = beta.rvs(alpha, beta_param, random_state=self._rng)
+                if strategy is None:
+                    tbest = self.tournament(scores=scores, entropy=entropy, gamma=self.gamma)
+                    Vi = self.mutate(P=population, n_ind=self.D, current=i, tbest=tbest)
+                else:
+                    Vi = strategy(population, self.D, self.F, i, int(np.argmax(scores)))
+                if self.CR is None:
+                    score_i = max(scores[i], 0)
+                    alpha, beta_param = (2 - score_i) * 2, (1 + score_i) * 2
+                    CR = beta.rvs(alpha, beta_param, random_state=self._rng)
+                else:
+                    CR = self.CR
                 Ui = self.crossover(n_ind=self.D, ind=population[i], mutant=Vi, cross_proba=CR)
                 if np.array_equal(population[i], Ui):
                     score_trial = scores[i]

@@ -175,6 +175,7 @@ class Pbil(Heuristic):
         )
         saved_proba = copy(probas)
         state = PopulationState.from_best(float("-inf"), [], np.zeros(self.D, dtype=bool))
+        self.reset_tracking()
 
         while state.generation < self.Gmax:
             instant = time.time()

@@ -165,6 +165,8 @@ class BackwardSelection(Heuristic):
         self.reset_rng()
 
         scoreMax, indMax = self._evaluate_candidate(self.selected_features)
+        self.reset_tracking()
+        self.track_best(scoreMax, timedelta(seconds=(time.time() - debut)), len(self.selected_features))
         G = 0
         same_since_improv = 0
         improvement = True
@@ -179,6 +181,8 @@ class BackwardSelection(Heuristic):
             same_since_improv = 0 if improvement else same_since_improv + 1
             time_instant = timedelta(seconds=(time.time() - instant))
             time_total = timedelta(seconds=(time.time() - debut))
+            if improvement:
+                self.track_best(scoreMax, time_total, len(self.selected_features))
             print_out = self.sprint_(
                 print_out=print_out,
                 name=code,

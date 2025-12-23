@@ -139,6 +139,8 @@ class SimulatedAnnealing(Heuristic):
         best = current.copy()
         best_score = current_score
         best_time = timedelta(seconds=0)
+        self.reset_tracking()
+        self.track_best(best_score, timedelta(seconds=(time.time() - debut)), int(best.sum()))
 
         calib_samples = int(min(5 * (self.N or 20), 200))
         T0, Tf = self._calibrate_temperatures(current, current_score, calib_samples)
@@ -171,6 +173,7 @@ class SimulatedAnnealing(Heuristic):
                         best = current.copy()
                         best_score = current_score
                         best_time = timedelta(seconds=(time.time() - debut))
+                        self.track_best(best_score, best_time, int(best.sum()))
                         improved = True
                 if self._time_exceeded(debut, self.Tmax):
                     break

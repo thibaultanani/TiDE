@@ -168,6 +168,9 @@ class ForwardSelection(Heuristic):
             indMax = indArray
         else:
             scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
+        self.reset_tracking()
+        if np.isfinite(scoreMax):
+            self.track_best(scoreMax, timedelta(seconds=(time.time() - debut)), len(self.selected_features))
         G = 0
         same_since_improv = 0
         improvement = True
@@ -185,6 +188,8 @@ class ForwardSelection(Heuristic):
             same_since_improv = 0 if improvement else same_since_improv + 1
             time_instant = timedelta(seconds=(time.time() - instant))
             time_total = timedelta(seconds=(time.time() - debut))
+            if improvement:
+                self.track_best(scoreMax, time_total, len(self.selected_features))
             print_out = self.sprint_(
                 print_out=print_out,
                 name=code,

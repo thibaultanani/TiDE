@@ -442,7 +442,7 @@ class Heuristic(FeatureSelection):
                 method = str(self.pipeline)
 
             bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
-            score_train, y_true, y_pred = fitness(
+            score_train, y_true, y_pred, fold_scores, fold_std = fitness(
                 train=self.train,
                 test=self.test,
                 columns=self.cols,
@@ -461,6 +461,12 @@ class Heuristic(FeatureSelection):
                 string_tmp = f"Regression residuals (first 5): {(y_true - y_pred).head().tolist()}" + os.linesep
             else:
                 string_tmp = ""
+            if fold_scores is None:
+                cv_string = "CV Fold Scores: None" + os.linesep + "CV Fold Std: None" + os.linesep
+            else:
+                cv_string = (
+                    f"CV Fold Scores: {fold_scores}" + os.linesep + f"CV Fold Std: {fold_std}" + os.linesep
+                )
             avg_iter = t.total_seconds() / g if g else 0.0
             points_path = self._write_best_points()
             string = (
@@ -476,6 +482,7 @@ class Heuristic(FeatureSelection):
                 + f"Method: {method}" + os.linesep
                 + f"Best Score: {score_train}" + os.linesep
                 + string_tmp
+                + cv_string
                 + f"Best Subset: {bestSubset}" + os.linesep
                 + f"Number of Features: {len(bestSubset)}" + os.linesep
                 + f"Number of Features (Ratio): {len(bestSubset) / len(self.cols)}" + os.linesep

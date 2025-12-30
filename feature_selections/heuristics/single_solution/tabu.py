@@ -119,18 +119,44 @@ class Tabu(Heuristic):
         while G < self.Gmax:
             instant = time.time()
             scores: list[float] = []
-            neighbourhood = []
-            for _ in range(self.N):
+            neighbourhood_all: list[np.ndarray] = []
+            seen: set[tuple[bool, ...]] = set()
+            max_trials = max(self.N, 10 * self.N)
+            for _ in range(max_trials):
                 neighbour = np.asarray(
                     diversification(individual=bestInd.tolist(), distance=self.nb, rng=self._rng)
                 )
-                if not self._is_in_tabu(neighbour, tabu_list):
-                    neighbourhood.append(neighbour)
+                key = tuple(neighbour.tolist())
+                if key in seen:
+                    continue
+                seen.add(key)
+                neighbourhood_all.append(neighbour)
+                if len(neighbourhood_all) >= self.N:
+                    break
 
-            if neighbourhood:
+            neighbourhood = [cand for cand in neighbourhood_all if not self._is_in_tabu(cand, tabu_list)]
+            neighbourhood_tabu = [cand for cand in neighbourhood_all if cand not in neighbourhood]
+
+            if not neighbourhood and neighbourhood_tabu:
+                tabu_scores = [self.score(ind) for ind in neighbourhood_tabu]
+                asp_idx = [i for i, s in enumerate(tabu_scores) if s > scoreMax]
+                if asp_idx:
+                    i_best = max(asp_idx, key=lambda i: tabu_scores[i])
+                else:
+                    i_best = int(np.argmax(tabu_scores))
+                neighbourhood = [neighbourhood_tabu[i_best]]
+                scores = [tabu_scores[i_best]]
+            elif neighbourhood:
                 scores = [self.score(ind) for ind in neighbourhood]
-                bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(neighbourhood), cols=self.cols)
-                tabu_list = self._insert_tabu(tabu_list, bestInd, self.size)
+            else:
+                shake = np.asarray(
+                    diversification(individual=bestInd.tolist(), distance=max(self.nb, 2 * self.nb), rng=self._rng)
+                )
+                neighbourhood = [shake]
+                scores = [self.score(shake)]
+
+            bestScore, bestSubset, bestInd = add(scores=scores, inds=np.asarray(neighbourhood), cols=self.cols)
+            tabu_list = self._insert_tabu(tabu_list, bestInd, self.size)
 
             G += 1
             same += 1

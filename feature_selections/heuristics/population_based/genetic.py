@@ -154,9 +154,11 @@ class Genetic(Heuristic):
 
         while state.generation < self.Gmax:
             instant = time.time()
-            population, scores = self.rank_selection(list(population), scores, self.N)
+            parents, parent_scores = self.rank_selection(list(population), scores, self.N)
+            population = list(parents)
+            scores = list(parent_scores)
             for _ in range(self.N):
-                parent1, parent2 = self.roulette_selection(population, scores)
+                parent1, parent2 = self.roulette_selection(parents, parent_scores)
                 child = self.crossover(parent1, parent2)
                 child = self.mutate(child, self.mutation)
                 child_array = np.asarray(child, dtype=bool)

@@ -10,7 +10,8 @@ from typing import List, Optional, Sequence
 import numpy as np
 from numpy.random import Generator
 import pandas as pd
-from sklearn.model_selection import cross_val_predict
+from sklearn.base import clone, is_classifier
+from sklearn.model_selection import check_cv
 
 
 DatasetPath = Path | str
@@ -155,8 +156,9 @@ def fitness(
     Returns
     -------
     tuple
-        ``(score, y_true, y_pred)`` where ``score`` is penalised by the
-        ``ratio`` hyper-parameter.
+        ``(score, y_true, y_pred, fold_scores, fold_std)`` where ``score`` is
+        penalised by the ``ratio`` hyper-parameter. ``fold_scores`` and
+        ``fold_std`` are provided only when cross-validation is used.
     """
 
     selected = _ensure_valid_individual(ind, rng=rng)
@@ -165,9 +167,24 @@ def fitness(
     X_train, y_train = train_sub.drop(columns=[target]), train_sub[target]
 
     if test is None and cv is not None:
-        y_pred = cross_val_predict(pipeline, X_train, y_train, cv=cv, n_jobs=1)
-        score = scoring(y_train, y_pred) - (ratio * (len(subset) / len(columns)))
-        return score, y_train.reset_index(drop=True), pd.Series(y_pred)
+        estimator = pipeline
+        if hasattr(pipeline, "steps") and getattr(pipeline, "steps", None):
+            estimator = pipeline.steps[-1][1]
+        splitter = check_cv(cv=cv, y=y_train, classifier=is_classifier(estimator))
+        fold_scores = []
+        y_pred_all = np.empty(len(y_train), dtype=object)
+        for train_idx, test_idx in splitter.split(X_train, y_train):
+            X_tr, X_te = X_train.iloc[train_idx], X_train.iloc[test_idx]
+            y_tr, y_te = y_train.iloc[train_idx], y_train.iloc[test_idx]
+            model = clone(pipeline)
+            model.fit(X_tr, y_tr)
+            y_hat = model.predict(X_te)
+            fold_scores.append(float(scoring(y_te, y_hat)))
+            y_pred_all[test_idx] = y_hat
+        mean_score = float(np.mean(fold_scores)) if fold_scores else float("-inf")
+        score = mean_score - (ratio * (len(subset) / len(columns)))
+        fold_std = float(np.std(fold_scores, ddof=1)) if len(fold_scores) > 1 else 0.0
+        return score, y_train.reset_index(drop=True), pd.Series(y_pred_all), fold_scores, fold_std
 
     if test is None:
         raise ValueError("Either 'test' or 'cv' must be provided to compute fitness.")
@@ -177,7 +194,7 @@ def fitness(
     pipeline.fit(X_train, y_train)
     y_pred = pipeline.predict(X_test)
     score = scoring(y_test, y_pred) - (ratio * (len(subset) / len(columns)))
-    return score, y_test.reset_index(drop=True), pd.Series(y_pred)
+    return score, y_test.reset_index(drop=True), pd.Series(y_pred), None, None
 
 
 def random_int_power(n: int, power: int = 2, rng: Generator | None = None) -> int:

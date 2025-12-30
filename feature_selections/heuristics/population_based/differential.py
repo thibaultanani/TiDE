@@ -125,7 +125,7 @@ class Differential(Heuristic):
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3 = self._rng.choice(idx, 3, replace=False)
         pop_f = pop.astype(float, copy=False)
-        mixture = pop_f[r1] + F * (pop_f[best] - pop_f[current]) + F * (pop_f[r2] - pop_f[r3])
+        mixture = pop_f[r1] + F * (pop_f[best] - pop_f[r1]) + F * (pop_f[r2] - pop_f[r3])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     def _mutate_rand_2(self, pop: np.ndarray, n_ind: int, F: float, current: int) -> list[int]:
@@ -160,7 +160,7 @@ class Differential(Heuristic):
         idx = [i for i in range(len(pop)) if i != current]
         r1, r2, r3, r4, r5 = self._rng.choice(idx, 5, replace=False)
         pop_f = pop.astype(float, copy=False)
-        mixture = pop_f[r1] + F * (pop_f[best] - pop_f[current]) + F * (pop_f[r2] - pop_f[r3]) + F * (pop_f[r4] - pop_f[r5])
+        mixture = pop_f[r1] + F * (pop_f[best] - pop_f[r1]) + F * (pop_f[r2] - pop_f[r3]) + F * (pop_f[r4] - pop_f[r5])
         return [1 if x >= 0.5 else 0 for x in mixture]
 
     def crossover(self, n_ind: int, ind: np.ndarray, mutant: list[int], cross_proba: float) -> np.ndarray:

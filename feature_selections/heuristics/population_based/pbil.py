@@ -87,7 +87,7 @@ class Pbil(Heuristic):
         self.LR = LR
         self.MP = MP
         self.MS = MS
-        self.n = n if n is not None else int(self.N * 0.15)
+        self.n = n if n is not None else max(1, int(self.N * 0.15))
         self.entropy = entropy
         self.warm_start_prob = float(np.clip(warm_start_prob, 1e-3, 1 - 1e-3))
         self.warm_start_cold_prob = float(np.clip(warm_start_cold_prob, 1e-3, 1 - 1e-3))
@@ -227,12 +227,12 @@ class Pbil(Heuristic):
 
             if entropy < self.entropy:
                 state.reset_stagnation()
-            probas = self.create_probas(
-                size=self.D,
-                warm_mask=self._warm_start_mask,
-                warm_prob=self.warm_start_prob,
-                cold_prob=self.warm_start_cold_prob,
-            )
+                probas = self.create_probas(
+                    size=self.D,
+                    warm_mask=self._warm_start_mask,
+                    warm_prob=self.warm_start_prob,
+                    cold_prob=self.warm_start_cold_prob,
+                )
 
         return (
             state.tracker.score,

@@ -105,7 +105,7 @@ class LocalSearch(Heuristic):
             instant = time.time()
             neighbourhood = [
                 diversification(individual=indMax.tolist(), distance=self.nb, rng=self._rng)
-                for _ in range(self.N)
+                for _ in range(self.size)
             ]
             neighbourhood = np.asarray(neighbourhood)
             scores = [self.score(ind) for ind in neighbourhood]

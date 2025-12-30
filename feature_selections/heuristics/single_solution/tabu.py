@@ -135,7 +135,7 @@ class Tabu(Heuristic):
                     break
 
             neighbourhood = [cand for cand in neighbourhood_all if not self._is_in_tabu(cand, tabu_list)]
-            neighbourhood_tabu = [cand for cand in neighbourhood_all if cand not in neighbourhood]
+            neighbourhood_tabu = [cand for cand in neighbourhood_all if self._is_in_tabu(cand, tabu_list)]
 
             if not neighbourhood and neighbourhood_tabu:
                 tabu_scores = [self.score(ind) for ind in neighbourhood_tabu]
@@ -149,8 +149,12 @@ class Tabu(Heuristic):
             elif neighbourhood:
                 scores = [self.score(ind) for ind in neighbourhood]
             else:
+                if self.nb >= 0:
+                    shake_dist = max(1, 2 * self.nb)
+                else:
+                    shake_dist = max(1, int(np.ceil(np.sqrt(self.D))))
                 shake = np.asarray(
-                    diversification(individual=bestInd.tolist(), distance=max(self.nb, 2 * self.nb), rng=self._rng)
+                    diversification(individual=bestInd.tolist(), distance=shake_dist, rng=self._rng)
                 )
                 neighbourhood = [shake]
                 scores = [self.score(shake)]

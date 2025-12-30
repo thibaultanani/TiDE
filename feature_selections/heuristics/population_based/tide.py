@@ -257,7 +257,8 @@ class Tide(Heuristic):
 
         p = (1 - entropy) * (1 - gamma) + gamma
         nb_scores = max(2, int(len(scores) * p))
-        idx = self._rng.choice(len(scores), size=nb_scores, replace=True)
+        nb_scores = min(len(scores), nb_scores)
+        idx = self._rng.choice(len(scores), size=nb_scores, replace=False)
         selected_scores = [scores[i] for i in idx]
         score_max = float(np.amax(selected_scores))
         tied_indices = [idx_i for idx_i, score in zip(idx, selected_scores) if score == score_max]

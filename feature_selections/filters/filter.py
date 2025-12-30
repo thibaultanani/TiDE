@@ -16,7 +16,7 @@ import pandas as pd
 import psutil
 from scipy.stats import pearsonr
 from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin
-from sklearn.feature_selection import f_classif, mutual_info_classif
+from sklearn.feature_selection import f_classif, mutual_info_classif, mutual_info_regression
 from sklearn.metrics import pairwise_distances
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import MinMaxScaler
@@ -135,7 +135,11 @@ class Filter(FeatureSelection):
         strategies = {
             "correlation": ("Correlation", Filter.correlation_selection, "CORR"),
             "anova": ("Anova", Filter.anova_selection, "ANOV"),
-            "mutual information": ("Mutual Information", Filter.mutual_info_selection, "MI  "),
+            "mutual information": (
+                "Mutual Information",
+                partial(Filter.mutual_info_selection, is_quantitative=self.quantitative),
+                "MI  ",
+            ),
             "mrmr": ("MRMR", partial(Filter.mrmr_selection, is_quantitative=self.quantitative), "MRMR"),
             "surf": ("SURF", partial(Filter.surf_selection, is_quantitative=self.quantitative), "SURF"),
         }
@@ -269,7 +273,8 @@ class Filter(FeatureSelection):
             if column == target:
                 continue
             coef, _ = pearsonr(df[column], df[target].values)
-            corr_results.append((column, float(coef)))
+            coef = float(np.nan_to_num(coef, nan=0.0, posinf=0.0, neginf=0.0))
+            corr_results.append((column, abs(coef)))
         corr_results.sort(key=lambda x: x[1], reverse=True)
         sorted_features = [feature for feature, _ in corr_results]
         return sorted_features, corr_results
@@ -288,12 +293,19 @@ class Filter(FeatureSelection):
         return sorted_features, f_results
 
     @staticmethod
-    def mutual_info_selection(df: pd.DataFrame, target: str) -> tuple[List[str], ScoreListing]:
+    def mutual_info_selection(
+        df: pd.DataFrame,
+        target: str,
+        is_quantitative: bool,
+    ) -> tuple[List[str], ScoreListing]:
         """Rank features using mutual information with the target."""
 
         X = df.drop([target], axis=1)
         y = df[target]
-        mi_scores = mutual_info_classif(X, y, discrete_features=True, random_state=42)
+        if is_quantitative:
+            mi_scores = mutual_info_regression(X, y, random_state=42)
+        else:
+            mi_scores = mutual_info_classif(X, y, discrete_features=False, random_state=42)
         mi_results = list(zip(X.columns.tolist(), mi_scores))
         mi_results.sort(key=lambda x: x[1], reverse=True)
         sorted_features = [feature for feature, _ in mi_results]
@@ -324,7 +336,7 @@ class Filter(FeatureSelection):
                 r = np.zeros(p, dtype=float)
             else:
                 r = (Xc.T @ yc) / (stdX * denom_y)
-            r = np.nan_to_num(r, nan=0.0)
+            r = np.abs(np.nan_to_num(r, nan=0.0))
             r_min, r_max = float(np.min(r)), float(np.max(r))
             relevance = (r - r_min) / (r_max - r_min) if r_max > r_min else np.zeros_like(r)
         else:
@@ -339,25 +351,32 @@ class Filter(FeatureSelection):
         scores_dict: dict[str, float] = {}
         ZT = Z.T
 
-        j0 = int(np.argmax(relevance))
-        order.append(cols[j0])
-        selected[j0] = True
-        scores_dict[cols[j0]] = float(relevance[j0])
+        j = int(np.argmax(relevance))
+        order.append(cols[j])
+        selected[j] = True
+        scores_dict[cols[j]] = float(relevance[j])
+
+        corr_vec = np.clip(np.abs((ZT @ Z[:, j]) / (n - 1.0)), 0.0, 1.0)
+        red_sum += corr_vec
 
         for _ in range(1, p):
-            s = int(np.where(selected)[0][-1])
-            z_s = Z[:, s]
-            corr_vec = (ZT @ z_s) / (n - 1.0)
-            red_sum += (np.clip(corr_vec, -1.0, 1.0) + 1.0) * 0.5
-            t_cur = np.count_nonzero(selected)
+            t_cur = int(np.count_nonzero(selected))
+            t_cur = max(1, t_cur)
+
             scores = relevance - (red_sum / t_cur)
             scores[selected] = -np.inf
+
             j_next = int(np.argmax(scores))
+            if not np.isfinite(scores[j_next]):
+                break
+
             order.append(cols[j_next])
             selected[j_next] = True
             scores_dict[cols[j_next]] = float(scores[j_next])
-            if t_cur + 1 == p:
-                break
+
+            corr_vec = np.clip(np.abs((ZT @ Z[:, j_next]) / (n - 1.0)), 0.0, 1.0)
+            red_sum += corr_vec
+
         return order, [(feat, scores_dict[feat]) for feat in order]
 
     @staticmethod

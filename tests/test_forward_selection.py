@@ -1,8 +1,10 @@
 import time
 import uuid
+import json
 
 import numpy as np
 import pytest
+from sklearn.model_selection import StratifiedKFold
 
 from feature_selections.heuristics.population_based.tide import Tide
 from feature_selections.heuristics.single_solution.forward import ForwardSelection
@@ -168,3 +170,89 @@ def test_tide_forward_initialisation_returns_best_indicator(tmp_path, dataset, p
     expected_indicator = _expected_indicator(tide.D, 0)
     assert np.array_equal(indicator, expected_indicator)
     assert np.issubdtype(indicator.dtype, np.integer)
+
+
+def test_tide_filter_initialisation_supports_cv_majority(tmp_path, dataset, pipeline_factory):
+    tide = Tide(
+        name=f"tide_filter_init_test_{uuid.uuid4().hex}",
+        target="target",
+        pipeline=pipeline_factory(),
+        train=dataset,
+        test=None,
+        cv=StratifiedKFold(n_splits=3, shuffle=True, random_state=0),
+        scoring=None,
+        Tmax=10,
+        ratio=0.2,
+        N=5,
+        Gmax=5,
+        gamma=0.8,
+        filter_init=True,
+        filter_init_mode="cv_majority",
+        sfs_init=False,
+        entropy=0.05,
+        suffix="",
+        verbose=False,
+        output=str(tmp_path),
+    )
+
+    indicator = np.asarray(tide.filter_initialisation(), dtype=int)
+    assert indicator.shape == (tide.D,)
+    assert np.issubdtype(indicator.dtype, np.integer)
+
+
+def test_tide_forward_initialisation_supports_sffs_mode(tmp_path, dataset, pipeline_factory):
+    tide = Tide(
+        name=f"tide_sffs_init_test_{uuid.uuid4().hex}",
+        target="target",
+        pipeline=pipeline_factory(),
+        train=dataset,
+        test=dataset,
+        scoring=None,
+        Tmax=10,
+        ratio=0.2,
+        N=5,
+        Gmax=5,
+        gamma=0.8,
+        filter_init=False,
+        sfs_init=True,
+        sfs_init_mode="sffs",
+        entropy=0.05,
+        suffix="",
+        cv=None,
+        verbose=False,
+        output=str(tmp_path),
+    )
+
+    indicator = np.asarray(tide.forward_initialisation(), dtype=int)
+    assert indicator.shape == (tide.D,)
+    assert np.issubdtype(indicator.dtype, np.integer)
+
+
+def test_tide_results_include_filter_init_mode(tmp_path, dataset, pipeline_factory):
+    tide = Tide(
+        name=f"tide_results_mode_{uuid.uuid4().hex}",
+        target="target",
+        pipeline=pipeline_factory(),
+        train=dataset,
+        test=dataset,
+        scoring=None,
+        Tmax=1,
+        ratio=0.2,
+        N=5,
+        Gmax=2,
+        gamma=0.8,
+        filter_init=True,
+        filter_init_mode="fast_ranking",
+        sfs_init=True,
+        sfs_init_mode="sffs",
+        entropy=0.05,
+        suffix="",
+        cv=None,
+        verbose=False,
+        output=str(tmp_path),
+    )
+
+    tide.start(pid=13)
+    results_payload = json.loads((tide.path / "results.json").read_text(encoding="utf-8"))
+    assert "Filter init mode: fast_ranking (fast global ranking)" in results_payload["specifics"]
+    assert "Sequential init mode: sffs (sequential floating forward selection)" in results_payload["specifics"]

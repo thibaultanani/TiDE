@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, create_directory, create_population, diversification
+from helper.helper import add, create_directory, create_population, diversification
 
 
 class Tabu(Heuristic):
@@ -109,6 +109,7 @@ class Tabu(Heuristic):
                 bestInd = warm_mask
         scoreMax, subsetMax, indMax, timeMax = bestScore, bestSubset, bestInd, timedelta(seconds=0)
         self.reset_tracking()
+        self.seed_full_subset_tracking()
         self.track_best(scoreMax, timedelta(seconds=(time.time() - debut)), len(subsetMax))
 
         tabu_list: deque[np.ndarray] = deque(maxlen=self.size)

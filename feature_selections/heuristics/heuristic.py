@@ -16,7 +16,7 @@ import psutil
 from sklearn.base import ClassifierMixin, RegressorMixin
 
 from feature_selections import FeatureSelection
-from utility import add, create_population, fitness
+from helper import add, create_population, fitness
 
 
 def _as_bool_array(individual: Sequence[bool] | np.ndarray) -> np.ndarray:
@@ -178,6 +178,14 @@ class Heuristic(FeatureSelection):
         """Clear the time-to-best tracking history."""
 
         self._best_history = []
+
+    def seed_full_subset_tracking(self) -> float:
+        """Seed the time-to-best curve with the score of the full feature set."""
+
+        full_subset = np.ones(self.D, dtype=bool)
+        full_score = self.score(full_subset)
+        self.track_best(full_score, timedelta(seconds=0), self.D)
+        return full_score
 
     def track_best(self, score: float, time_total: timedelta, n_features: int) -> None:
         """Record a new best score with its elapsed time."""
@@ -397,22 +405,20 @@ class Heuristic(FeatureSelection):
 
         return (time.time() - start_time) >= self.Tmax
 
-    def _write_best_points(self) -> Path:
-        """Write the record points (time, score, feature count) as JSON."""
+    def _internal_evaluation_mode(self) -> str:
+        """Return the internal evaluation regime used by the selector."""
 
-        points_path = Path(self.path) / "time_to_best_points.json"
-        if not self._best_history:
-            points: list[dict[str, float | int]] = []
-        else:
-            points = []
-            last_time = -1.0
-            for elapsed, score, n_features in self._best_history:
-                monotone_time = max(elapsed, last_time)
-                last_time = monotone_time
-                points.append({"t": monotone_time, "s": score, "p": int(n_features)})
+        return "cv" if self.cv is not None else "holdout"
+
+    def _write_best_points(self) -> tuple[Path, float, list[dict[str, float | int]]]:
+        """Write the normalised time-to-best curve and return its AUAC."""
+
+        points_path = Path(self.path) / "time_to_best_curve.json"
+        curve_points = self.build_time_to_best_curve(self._best_history)
+        auac = self.compute_auac(curve_points)
         with points_path.open("w", encoding="utf-8") as f:
-            json.dump(points, f, ensure_ascii=True)
-        return points_path
+            json.dump(curve_points, f, ensure_ascii=True)
+        return points_path, auac, curve_points
 
     def save(
         self,
@@ -427,50 +433,90 @@ class Heuristic(FeatureSelection):
     ) -> None:
         """Persist the optimisation summary and trained pipeline to disk."""
 
+        results_json_path = Path(self.path) / "results.json"
         results_path = Path(self.path) / "results.txt"
-        with results_path.open("w", encoding="utf-8") as f:
-            estimator = self.pipeline
-            if hasattr(self.pipeline, "steps") and getattr(self.pipeline, "steps", None):
-                try:
-                    estimator = self.pipeline.steps[-1][1]
-                except (AttributeError, IndexError, TypeError):
-                    estimator = self.pipeline
-
+        estimator = self.pipeline
+        if hasattr(self.pipeline, "steps") and getattr(self.pipeline, "steps", None):
             try:
-                method = estimator.__class__.__name__
-            except Exception:
-                method = str(self.pipeline)
+                estimator = self.pipeline.steps[-1][1]
+            except (AttributeError, IndexError, TypeError):
+                estimator = self.pipeline
 
-            bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
-            score_train, y_true, y_pred, fold_scores, fold_std = fitness(
-                train=self.train,
-                test=self.test,
-                columns=self.cols,
-                ind=bestInd,
-                target=self.target,
-                pipeline=self.pipeline,
-                scoring=self.scoring,
-                ratio=0,
-                cv=self.cv,
-                rng=self._rng,
+        try:
+            method = estimator.__class__.__name__
+        except Exception:
+            method = str(self.pipeline)
+
+        bestSubset = [self.cols[i] for i in range(len(self.cols)) if bestInd[i]]
+        score_train, y_true, y_pred, fold_scores, fold_std = fitness(
+            train=self.train,
+            test=self.test,
+            columns=self.cols,
+            ind=bestInd,
+            target=self.target,
+            pipeline=self.pipeline,
+            scoring=self.scoring,
+            ratio=0,
+            cv=self.cv,
+            rng=self._rng,
+        )
+        metrics_payload: dict[str, int | list[float]] = {}
+        if isinstance(estimator, ClassifierMixin):
+            tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
+            string_tmp = f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep
+            metrics_payload = {"tp": tp, "tn": tn, "fp": fp, "fn": fn}
+        elif isinstance(estimator, RegressorMixin):
+            residuals = (y_true - y_pred).head().tolist()
+            string_tmp = f"Regression residuals (first 5): {residuals}" + os.linesep
+            metrics_payload = {"residuals_first_5": residuals}
+        else:
+            string_tmp = ""
+        if fold_scores is None:
+            cv_string = "CV Fold Scores: None" + os.linesep + "CV Fold Std: None" + os.linesep
+        else:
+            cv_string = (
+                f"CV Fold Scores: {fold_scores}" + os.linesep + f"CV Fold Std: {fold_std}" + os.linesep
             )
-            if isinstance(estimator, ClassifierMixin):
-                tp, tn, fp, fn = self.calculate_confusion_matrix_components(y_true, y_pred)
-                string_tmp = f"TP: {tp} TN: {tn} FP: {fp} FN: {fn}" + os.linesep
-            elif isinstance(estimator, RegressorMixin):
-                string_tmp = f"Regression residuals (first 5): {(y_true - y_pred).head().tolist()}" + os.linesep
-            else:
-                string_tmp = ""
-            if fold_scores is None:
-                cv_string = "CV Fold Scores: None" + os.linesep + "CV Fold Std: None" + os.linesep
-            else:
-                cv_string = (
-                    f"CV Fold Scores: {fold_scores}" + os.linesep + f"CV Fold Std: {fold_std}" + os.linesep
-                )
-            avg_iter = t.total_seconds() / g if g else 0.0
-            points_path = self._write_best_points()
+        avg_iter = t.total_seconds() / g if g else 0.0
+        points_path, auac, curve_points = self._write_best_points()
+        results_payload = {
+            "strategy_type": "heuristic",
+            "name": name,
+            "method_mode": name,
+            "internal_evaluation_mode": self._internal_evaluation_mode(),
+            "time_budget_seconds": float(self.Tmax),
+            "population": int(self.N),
+            "generations": int(self.Gmax),
+            "generations_performed": int(g),
+            "latest_improvement": int(last),
+            "latest_improvement_ratio": float(1 - (last / g if g else 0)),
+            "latest_improvement_time_seconds": float(bestTime.total_seconds()),
+            "cross_validation_strategy": str(self.cv),
+            "specifics": specifics.rstrip(),
+            "method": method,
+            "ba_cv": float(score_train),
+            "best_subset": bestSubset,
+            "number_of_features": len(bestSubset),
+            "number_of_features_ratio": float(len(bestSubset) / len(self.cols)),
+            "execution_time_seconds": float(t.total_seconds()),
+            "average_time_per_iteration_seconds": float(avg_iter),
+            "auac_time_normalized": float(auac),
+            "time_to_best_points_file": points_path.name,
+            "time_to_best_points": curve_points,
+            "random_seed": self._seed,
+            "metrics": metrics_payload,
+            "cv_fold_scores": None if fold_scores is None else [float(score) for score in fold_scores],
+            "cv_fold_std": None if fold_std is None else float(fold_std),
+            "memory": str(psutil.virtual_memory()),
+        }
+        with results_json_path.open("w", encoding="utf-8") as f:
+            json.dump(results_payload, f, ensure_ascii=True, indent=2)
+        with results_path.open("w", encoding="utf-8") as f:
             string = (
                 f"Heuristic: {name}" + os.linesep
+                + f"Method Mode: {name}" + os.linesep
+                + f"Internal Evaluation Mode: {self._internal_evaluation_mode()}" + os.linesep
+                + f"Time Budget (s): {self.Tmax}" + os.linesep
                 + f"Population: {self.N}" + os.linesep
                 + f"Generations: {self.Gmax}" + os.linesep
                 + f"Generations Performed: {g}" + os.linesep
@@ -480,7 +526,7 @@ class Heuristic(FeatureSelection):
                 + f"Cross-validation strategy: {str(self.cv)}" + os.linesep
                 + specifics
                 + f"Method: {method}" + os.linesep
-                + f"Best Score: {score_train}" + os.linesep
+                + f"BA CV: {score_train}" + os.linesep
                 + string_tmp
                 + cv_string
                 + f"Best Subset: {bestSubset}" + os.linesep
@@ -488,6 +534,7 @@ class Heuristic(FeatureSelection):
                 + f"Number of Features (Ratio): {len(bestSubset) / len(self.cols)}" + os.linesep
                 + f"Execution Time: {round(t.total_seconds())} ({t})" + os.linesep
                 + f"Average Time per Iteration: {avg_iter:.6f} s" + os.linesep
+                + f"AUAC (time-normalized): {auac:.6f}" + os.linesep
                 + f"Time-to-best points: {points_path.name}" + os.linesep
                 + f"Random Seed: {self._seed}" + os.linesep
                 + f"Memory: {psutil.virtual_memory()}"
@@ -497,6 +544,10 @@ class Heuristic(FeatureSelection):
         log_path = Path(self.path) / "log.txt"
         with log_path.open("a", encoding="utf-8") as f:
             f.write(out)
+            if out and not out.endswith(os.linesep):
+                f.write(os.linesep)
+            f.write(f"AUAC (time-normalized): {auac:.6f}" + os.linesep)
+            f.write(f"Time-to-best points: {json.dumps(curve_points, ensure_ascii=True)}" + os.linesep)
 
         pipeline_path = Path(self.path) / "pipeline.joblib"
         joblib.dump(self.pipeline, pipeline_path)

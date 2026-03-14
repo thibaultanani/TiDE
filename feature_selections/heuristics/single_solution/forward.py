@@ -10,7 +10,7 @@ from typing import List, Sequence, Tuple
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import create_directory, fitness
+from helper.helper import create_directory, fitness
 
 
 class ForwardSelection(Heuristic):
@@ -169,6 +169,7 @@ class ForwardSelection(Heuristic):
         else:
             scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
         self.reset_tracking()
+        self.seed_full_subset_tracking()
         if np.isfinite(scoreMax):
             self.track_best(scoreMax, timedelta(seconds=(time.time() - debut)), len(self.selected_features))
         G = 0

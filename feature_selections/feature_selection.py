@@ -148,3 +148,48 @@ class FeatureSelection:
         """Return the internal NumPy random generator."""
 
         return self._rng
+
+    @staticmethod
+    def build_time_to_best_curve(
+        points: Sequence[tuple[float, float, int]],
+    ) -> list[dict[str, float | int]]:
+        """Normalise record points onto ``[0, 1]`` and return curve coordinates."""
+
+        if not points:
+            return []
+
+        monotone_points: list[tuple[float, float, int]] = []
+        last_time = 0.0
+        for elapsed, score, n_features in points:
+            monotone_time = max(float(elapsed), last_time)
+            last_time = monotone_time
+            monotone_points.append((monotone_time, float(score), int(n_features)))
+
+        final_time = monotone_points[-1][0]
+        if final_time <= 0:
+            score = monotone_points[-1][1]
+            n_features = monotone_points[-1][2]
+            return [
+                {"t": 0.0, "score": score, "p": n_features},
+                {"t": 1.0, "score": score, "p": n_features},
+            ]
+
+        curve = [
+            {"t": elapsed / final_time, "score": score, "p": n_features}
+            for elapsed, score, n_features in monotone_points
+        ]
+        curve[0]["t"] = 0.0
+        curve[-1]["t"] = 1.0
+        return curve
+
+    @staticmethod
+    def compute_auac(curve_points: Sequence[dict[str, float | int]]) -> float:
+        """Return the trapezoidal area under the normalised acquisition curve."""
+
+        if not curve_points:
+            return float("nan")
+        x = np.asarray([float(point["t"]) for point in curve_points], dtype=float)
+        y = np.asarray([float(point["score"]) for point in curve_points], dtype=float)
+        if x.size == 1:
+            return float(y[0])
+        return float(np.trapz(y, x))

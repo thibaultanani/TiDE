@@ -10,12 +10,13 @@ from typing import Iterable, Sequence, Tuple
 import numpy as np
 from scipy.stats import beta
 from sklearn.base import ClassifierMixin
+from sklearn.model_selection import check_cv
 
 from feature_selections.filters import Filter
 from feature_selections.heuristics.heuristic import Heuristic, PopulationState
 from feature_selections.heuristics.population_based.differential import Differential
 from feature_selections.heuristics.single_solution import ForwardSelection
-from utility.utility import add, create_directory, create_population, fitness, get_entropy
+from helper.helper import add, create_directory, create_population, fitness, get_entropy
 
 
 class Tide(Heuristic):
@@ -59,7 +60,9 @@ class Tide(Heuristic):
         strat=None,
         F=None,
         filter_init=None,
+        filter_init_mode=None,
         sfs_init=None,
+        sfs_init_mode=None,
         sffs_init=None,
         entropy=None,
         suffix=None,
@@ -113,6 +116,8 @@ class Tide(Heuristic):
                 raise ValueError(f"strat '{strat}' invalid. Choose from {sorted(valid)}.")
         self.strat = strat
         self.F = 1.0 if F is None else float(F)
+        self.filter_init_mode = self._resolve_filter_init_mode(filter_init_mode)
+        self.sfs_init_mode = self._resolve_sfs_init_mode(sfs_init_mode)
         if filter_init is False:
             self.filter_init, self.filter_str = False, ""
         else:
@@ -131,27 +136,131 @@ class Tide(Heuristic):
         if sfs_init is False:
             self.sfs_init, self.sfs_str = False, ""
         else:
-            self.sfs_init, self.sfs_str = True, " + SFS"
+            self.sfs_init = True
+            self.sfs_str = " + SFS" if self.sfs_init_mode == "sfs" else " + SFFS"
         self.entropy = entropy if entropy is not None else 0.05
         self.path = self.path / ("tide" + self.suffix)
         create_directory(path=self.path)
 
-    def filter_initialisation(self) -> Sequence[int]:
+    @staticmethod
+    def _resolve_filter_init_mode(filter_init_mode: str | None) -> str:
+        """Return the initialisation protocol used for the filter seed."""
+
+        if filter_init_mode is None:
+            return "fast_ranking"
+        mode = str(filter_init_mode).strip().lower()
+        valid = {"fast_ranking", "cv_majority"}
+        if mode not in valid:
+            raise ValueError(f"filter_init_mode '{filter_init_mode}' invalid. Choose from {sorted(valid)}.")
+        return mode
+
+    @staticmethod
+    def _filter_init_mode_label(filter_init_mode: str) -> str:
+        """Return a human-readable label for the filter initialisation mode."""
+
+        labels = {
+            "fast_ranking": "fast global ranking",
+            "cv_majority": "per-fold ranking + majority vote",
+        }
+        return labels[filter_init_mode]
+
+    @staticmethod
+    def _resolve_sfs_init_mode(sfs_init_mode: str | None) -> str:
+        """Return the sequential initialisation protocol used by TiDE."""
+
+        if sfs_init_mode is None:
+            return "sfs"
+        mode = str(sfs_init_mode).strip().lower()
+        valid = {"sfs", "sffs"}
+        if mode not in valid:
+            raise ValueError(f"sfs_init_mode '{sfs_init_mode}' invalid. Choose from {sorted(valid)}.")
+        return mode
+
+    @staticmethod
+    def _sfs_init_mode_label(sfs_init_mode: str) -> str:
+        """Return a human-readable label for the sequential init mode."""
+
+        labels = {
+            "sfs": "sequential forward selection",
+            "sffs": "sequential floating forward selection",
+        }
+        return labels[sfs_init_mode]
+
+    def _log_initialisation_step(
+        self,
+        *,
+        state: PopulationState,
+        pid: int,
+        start_time: float,
+        step_start: float,
+        score: float,
+        candidate: Sequence[bool],
+    ) -> None:
+        """Record an initialisation candidate as a regular TiDE iteration."""
+
+        candidate_array = np.asarray(candidate, dtype=bool)
+        subset = [self.cols[i] for i in range(self.D) if candidate_array[i]]
+        time_total = self.elapsed_since(start_time)
+        state.update_current(score, subset, candidate_array)
+        state.advance()
+        state.tracker.observe(score, subset, candidate_array, time_total)
+        self.log_generation(
+            state=state,
+            code="TIDE",
+            pid=pid,
+            maxi=state.tracker.score,
+            best=score,
+            mean=score,
+            feats=len(subset),
+            time_exe=timedelta(seconds=(time.time() - step_start)),
+            time_total=time_total,
+            entropy=1.0,
+        )
+
+    def _score_internal_candidate(self, candidate: Sequence[bool]) -> float:
+        """Evaluate ``candidate`` with TiDE's internal selection protocol."""
+
+        return float(
+            fitness(
+                train=self.train,
+                test=self.test,
+                columns=self.cols,
+                ind=candidate,
+                target=self.target,
+                pipeline=self.pipeline,
+                scoring=self.scoring,
+                ratio=self.ratio,
+                cv=self.cv,
+                rng=self._rng,
+            )[0]
+        )
+
+    def _filter_initialisation_fast_ranking(
+        self,
+        *,
+        state: PopulationState | None = None,
+        pid: int = 0,
+        start_time: float | None = None,
+    ) -> Sequence[int]:
         """Initialise the population with a filter-based ranking of features."""
 
-        debut = time.time()
+        local_start_time = time.time() if start_time is None else start_time
         if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
             sorted_features, _ = Filter.anova_selection(df=self.train, target=self.target)
         else:
             sorted_features, _ = Filter.correlation_selection(df=self.train, target=self.target)
-        best_score, best_vector = -np.inf, [0] * self.D
+        best_score, best_vector = float("-inf"), [0] * self.D
         num_features = [int(round(len(sorted_features) * (val / 100.0))) for val in range(1, 101)]
         num_features = [val for val in num_features if val >= 1]
         num_features = list(dict.fromkeys(num_features))
-        generation = 0
-        while generation < self.Gmax and generation < len(num_features):
-            top_k_features = sorted_features[:num_features[generation]]
-            generation += 1
+
+        step_idx = 0
+        while step_idx < len(num_features) and (state is None or state.generation < self.Gmax):
+            if self.should_stop(local_start_time):
+                break
+            step_start = time.time()
+            top_k_features = sorted_features[:num_features[step_idx]]
+            step_idx += 1
             candidate = [0] * self.D
             for var in top_k_features:
                 candidate[self.cols.get_loc(var)] = 1
@@ -167,18 +276,133 @@ class Tide(Heuristic):
                 cv=self.cv,
                 rng=self._rng,
             )[0]
+            if state is not None:
+                self._log_initialisation_step(
+                    state=state,
+                    pid=pid,
+                    start_time=local_start_time,
+                    step_start=step_start,
+                    score=float(score),
+                    candidate=candidate,
+                )
             if score > best_score:
                 best_score, best_vector = score, candidate
-            if time.time() - debut >= self.Tmax:
+            if self.should_stop(local_start_time):
                 break
         return best_vector
 
-    def forward_initialisation(self) -> Sequence[int]:
+    def _filter_initialisation_cv_majority(
+        self,
+        *,
+        state: PopulationState | None = None,
+        pid: int = 0,
+        start_time: float | None = None,
+    ) -> Sequence[int]:
+        """Initialise TiDE with the filter protocol based on CV majority vote."""
+
+        local_start_time = time.time() if start_time is None else start_time
+        X = self.train.drop(columns=[self.target])
+        y = self.train[self.target]
+        splitter = check_cv(cv=self.cv, y=y, classifier=isinstance(self.pipeline.steps[-1][1], ClassifierMixin))
+        splits = list(splitter.split(X, y))
+        majority_threshold = max(1, (len(splits) // 2) + 1)
+        fold_best_subsets: list[list[str]] = [[] for _ in splits]
+        fold_best_scores = [float("-inf")] * len(splits)
+        global_best_score = float("-inf")
+        global_best_vector = [0] * self.D
+
+        for fold_idx, (train_idx, valid_idx) in enumerate(splits):
+            if self.should_stop(local_start_time) or (state is not None and state.generation >= self.Gmax):
+                break
+            fold_train = self.train.iloc[train_idx].reset_index(drop=True)
+            fold_valid = self.train.iloc[valid_idx].reset_index(drop=True)
+            if isinstance(self.pipeline.steps[-1][1], ClassifierMixin):
+                sorted_features, _ = Filter.anova_selection(df=fold_train, target=self.target)
+            else:
+                sorted_features, _ = Filter.correlation_selection(df=fold_train, target=self.target)
+
+            for feature_count in range(1, len(sorted_features) + 1):
+                if self.should_stop(local_start_time) or (state is not None and state.generation >= self.Gmax):
+                    break
+                step_start = time.time()
+                candidate_features = sorted_features[:feature_count]
+                candidate = np.zeros(self.D, dtype=int)
+                for feature in candidate_features:
+                    candidate[self.cols.get_loc(feature)] = 1
+                score = float(
+                    fitness(
+                        train=fold_train,
+                        test=fold_valid,
+                        columns=self.cols,
+                        ind=candidate,
+                        target=self.target,
+                        pipeline=self.pipeline,
+                        scoring=self.scoring,
+                        ratio=self.ratio,
+                        cv=None,
+                        rng=self._rng,
+                    )[0]
+                )
+                if score > fold_best_scores[fold_idx]:
+                    fold_best_scores[fold_idx] = score
+                    fold_best_subsets[fold_idx] = list(candidate_features)
+                    feature_votes: dict[str, int] = {}
+                    for subset in fold_best_subsets:
+                        for feature in subset:
+                            feature_votes[feature] = feature_votes.get(feature, 0) + 1
+                    consensus_subset = [
+                        feature for feature in self.cols if feature_votes.get(feature, 0) >= majority_threshold
+                    ]
+                    if not consensus_subset and feature_votes:
+                        max_votes = max(feature_votes.values())
+                        consensus_subset = [
+                            feature for feature in self.cols if feature_votes.get(feature, 0) == max_votes
+                        ]
+                    if not consensus_subset:
+                        consensus_subset = list(candidate_features)
+                    consensus_vector = np.zeros(self.D, dtype=int)
+                    for feature in consensus_subset:
+                        consensus_vector[self.cols.get_loc(feature)] = 1
+                    consensus_score = self._score_internal_candidate(consensus_vector)
+                    if state is not None:
+                        self._log_initialisation_step(
+                            state=state,
+                            pid=pid,
+                            start_time=local_start_time,
+                            step_start=step_start,
+                            score=float(consensus_score),
+                            candidate=consensus_vector,
+                        )
+                    if consensus_score > global_best_score:
+                        global_best_score = float(consensus_score)
+                        global_best_vector = consensus_vector.tolist()
+
+        return global_best_vector
+
+    def filter_initialisation(
+        self,
+        *,
+        state: PopulationState | None = None,
+        pid: int = 0,
+        start_time: float | None = None,
+    ) -> Sequence[int]:
+        """Initialise the population with a filter-based protocol."""
+
+        if self.filter_init_mode == "cv_majority":
+            return self._filter_initialisation_cv_majority(state=state, pid=pid, start_time=start_time)
+        return self._filter_initialisation_fast_ranking(state=state, pid=pid, start_time=start_time)
+
+    def forward_initialisation(
+        self,
+        *,
+        state: PopulationState | None = None,
+        pid: int = 0,
+        start_time: float | None = None,
+    ) -> Sequence[int]:
         """Initialise the population with the forward selection heuristic."""
 
-        debut = time.time()
+        local_start_time = time.time() if start_time is None else start_time
         scoreMax, indMax = -np.inf, np.zeros(self.D, dtype=int)
-        generation = 0
         improvement = True
 
         with TemporaryDirectory() as tmp_output:
@@ -198,21 +422,31 @@ class Tide(Heuristic):
                 cv=self.cv,
                 verbose=False,
                 output=tmp_output,
-                strat="sfs",
+                strat=self.sfs_init_mode,
                 seed=self._seed,
             )
 
-            while generation < self.Gmax and improvement:
+            while (state is None or state.generation < self.Gmax) and improvement:
+                if self.should_stop(local_start_time):
+                    break
+                step_start = time.time()
                 improvement, _, scoreMax, indMax, timeout = selector._forward_step(
-                    start_time=debut,
+                    start_time=local_start_time,
                     scoreMax=scoreMax,
                     indMax=indMax,
                 )
                 if timeout:
                     break
-
-                generation += 1
-                if selector._time_exceeded(debut, self.Tmax):
+                if state is not None:
+                    self._log_initialisation_step(
+                        state=state,
+                        pid=pid,
+                        start_time=local_start_time,
+                        step_start=step_start,
+                        score=float(scoreMax),
+                        candidate=indMax,
+                    )
+                if selector._time_exceeded(local_start_time, self.Tmax):
                     break
         return indMax.tolist()
 
@@ -280,6 +514,18 @@ class Tide(Heuristic):
             "Gamma: "
             + str(self.gamma)
             + os.linesep
+            + "Filter init mode: "
+            + self.filter_init_mode
+            + " ("
+            + self._filter_init_mode_label(self.filter_init_mode)
+            + ")"
+            + os.linesep
+            + "Sequential init mode: "
+            + self.sfs_init_mode
+            + " ("
+            + self._sfs_init_mode_label(self.sfs_init_mode)
+            + ")"
+            + os.linesep
             + "Crossover rate: "
             + (str(self.CR) if self.CR is not None else "adaptive")
             + os.linesep
@@ -325,17 +571,21 @@ class Tide(Heuristic):
         start_time = time.time()
         create_directory(path=self.path)
         self.reset_rng()
+        self.reset_tracking()
+        self.seed_full_subset_tracking()
+
+        state = PopulationState.from_best(float("-inf"), [], np.zeros(self.D, dtype=bool))
 
         population = create_population(inds=self.N, size=self.D, rng=self._rng).astype(bool)
         next_slot = 0
         r_filter, r_forward = None, None
         warm_vector = self._warm_start_mask.copy() if self._warm_start_mask is not None else None
         if self.filter_init and next_slot < self.N:
-            r_filter = self.filter_initialisation()
+            r_filter = self.filter_initialisation(state=state, pid=pid, start_time=start_time)
             population[next_slot] = np.asarray(r_filter, dtype=bool)
             next_slot += 1
         if self.sfs_init and next_slot < self.N:
-            r_forward = self.forward_initialisation()
+            r_forward = self.forward_initialisation(state=state, pid=pid, start_time=start_time)
             population[next_slot] = np.asarray(r_forward, dtype=bool)
             next_slot += 1
         if warm_vector is not None and next_slot < self.N:
@@ -350,8 +600,12 @@ class Tide(Heuristic):
                 bestScore = warm_score
                 bestSubset = self.warm_start_features
                 bestInd = warm_vector
-        state = PopulationState.from_best(bestScore, bestSubset, bestInd)
-        self.reset_tracking()
+        if state.tracker.score == float("-inf"):
+            state = PopulationState.from_best(bestScore, bestSubset, bestInd)
+        else:
+            time_total = self.elapsed_since(start_time)
+            state.update_current(bestScore, bestSubset, bestInd)
+            state.tracker.observe(bestScore, bestSubset, bestInd, time_total)
 
         initial_timer = time.time()
         mean_scores = float(np.mean(scores))
@@ -446,6 +700,18 @@ class Tide(Heuristic):
                 )
                 if stop:
                     break
+
+        results_path = self.path / "results.txt"
+        pending_logs = state.flush()
+        if pending_logs or not results_path.exists():
+            self.specifics(
+                bestInd=state.tracker.individual,
+                bestTime=state.tracker.time_found,
+                g=state.generation,
+                t=self.elapsed_since(start_time),
+                last=state.last_improvement,
+                out=pending_logs,
+            )
 
         return (
             state.tracker.score,

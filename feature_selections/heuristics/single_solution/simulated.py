@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import create_directory
+from helper.helper import create_directory
 
 
 class SimulatedAnnealing(Heuristic):
@@ -140,6 +140,7 @@ class SimulatedAnnealing(Heuristic):
         best_score = current_score
         best_time = timedelta(seconds=0)
         self.reset_tracking()
+        self.seed_full_subset_tracking()
         self.track_best(best_score, timedelta(seconds=(time.time() - debut)), int(best.sum()))
 
         calib_samples = int(min(5 * (self.N or 20), 200))

@@ -11,7 +11,7 @@ from typing import Callable, Dict
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, create_directory, create_population, get_entropy
+from helper.helper import add, create_directory, create_population, get_entropy
 
 
 class Differential(Heuristic):
@@ -209,6 +209,7 @@ class Differential(Heuristic):
 
         population, scores, state = self.initialise_population()
         self.reset_tracking()
+        self.seed_full_subset_tracking()
         self.track_best(state.tracker.score, self.elapsed_since(start_time), len(state.tracker.subset))
         strategy = self._strategy_map()[self.strat]
         bestScore, bestSubset, bestInd = (

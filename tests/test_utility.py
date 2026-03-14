@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from utility import utility
+from helper import helper
 
 
 def test_read_prefers_repo_datasets_when_parent_missing_file(tmp_path, monkeypatch):
@@ -32,7 +32,7 @@ def test_read_prefers_repo_datasets_when_parent_missing_file(tmp_path, monkeypat
 
     monkeypatch.chdir(project_dir)
 
-    loaded = utility.read("example")
+    loaded = helper.read("example")
 
     pdt.assert_frame_equal(loaded.reset_index(drop=True), data)
 

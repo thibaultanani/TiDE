@@ -11,7 +11,7 @@ from typing import Sequence, Tuple
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, create_directory, get_entropy, random_int_power
+from helper.helper import add, create_directory, get_entropy, random_int_power
 
 
 class Genetic(Heuristic):
@@ -150,6 +150,7 @@ class Genetic(Heuristic):
 
         population, scores, state = self.initialise_population(as_list=True)
         self.reset_tracking()
+        self.seed_full_subset_tracking()
         self.track_best(state.tracker.score, self.elapsed_since(start_time), len(state.tracker.subset))
 
         while state.generation < self.Gmax:

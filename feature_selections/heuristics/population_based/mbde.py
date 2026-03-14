@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from feature_selections.heuristics.heuristic import Heuristic
-from utility.utility import add, create_directory, create_population, get_entropy
+from helper.helper import add, create_directory, create_population, get_entropy
 
 
 class Nmbde(Heuristic):
@@ -141,6 +141,7 @@ class Nmbde(Heuristic):
 
         population, scores, state = self.initialise_population()
         self.reset_tracking()
+        self.seed_full_subset_tracking()
         self.track_best(state.tracker.score, self.elapsed_since(start_time), len(state.tracker.subset))
         bestScore, bestSubset, bestInd = (
             state.current_score,

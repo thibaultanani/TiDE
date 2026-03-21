@@ -484,6 +484,7 @@ class Heuristic(FeatureSelection):
             "name": name,
             "method_mode": name,
             "internal_evaluation_mode": self._internal_evaluation_mode(),
+            "sparsity_ratio": float(self.ratio),
             "time_budget_seconds": float(self.Tmax),
             "population": int(self.N),
             "generations": int(self.Gmax),
@@ -516,6 +517,7 @@ class Heuristic(FeatureSelection):
                 f"Heuristic: {name}" + os.linesep
                 + f"Method Mode: {name}" + os.linesep
                 + f"Internal Evaluation Mode: {self._internal_evaluation_mode()}" + os.linesep
+                + f"Sparsity Ratio: {self.ratio}" + os.linesep
                 + f"Time Budget (s): {self.Tmax}" + os.linesep
                 + f"Population: {self.N}" + os.linesep
                 + f"Generations: {self.Gmax}" + os.linesep
@@ -546,6 +548,7 @@ class Heuristic(FeatureSelection):
             f.write(out)
             if out and not out.endswith(os.linesep):
                 f.write(os.linesep)
+            f.write(f"Sparsity Ratio: {self.ratio}" + os.linesep)
             f.write(f"AUAC (time-normalized): {auac:.6f}" + os.linesep)
             f.write(f"Time-to-best points: {json.dumps(curve_points, ensure_ascii=True)}" + os.linesep)
 

@@ -96,7 +96,7 @@ class FeatureSelection:
         self.cv = cv
         self.Gmax = Gmax or 1_000_000
         self.Tmax = Tmax or 3_600
-        self.ratio = ratio if ratio is not None else 1e-5
+        self.ratio = ratio if ratio is not None else 0.05
         self.suffix = suffix or ""
         self.verbose = True if verbose is None else verbose
         base_path = Path(os.getcwd()) / (output or "out") / self.name

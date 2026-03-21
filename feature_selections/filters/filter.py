@@ -340,6 +340,7 @@ class Filter(FeatureSelection):
             "method_mode": self.selection_mode,
             "method_mode_label": self._mode_label(self.selection_mode),
             "internal_evaluation_mode": self._internal_evaluation_mode(),
+            "sparsity_ratio": float(self.ratio),
             "time_budget_seconds": float(self.Tmax),
             "selection_mode": self.selection_mode,
             "selection_mode_label": self._mode_label(self.selection_mode),
@@ -373,6 +374,8 @@ class Filter(FeatureSelection):
                 + f"Method Mode: {self.selection_mode} ({self._mode_label(self.selection_mode)})"
                 + os.linesep
                 + f"Internal Evaluation Mode: {self._internal_evaluation_mode()}"
+                + os.linesep
+                + f"Sparsity Ratio: {self.ratio}"
                 + os.linesep
                 + f"Time Budget (s): {self.Tmax}"
                 + os.linesep
@@ -419,6 +422,7 @@ class Filter(FeatureSelection):
             f.write(out)
             if out and not out.endswith(os.linesep):
                 f.write(os.linesep)
+            f.write(f"Sparsity Ratio: {self.ratio}" + os.linesep)
             f.write(f"AUAC (time-normalized): {auac:.6f}" + os.linesep)
             f.write(f"Time-to-best points: {json.dumps(curve_points, ensure_ascii=True)}" + os.linesep)
 

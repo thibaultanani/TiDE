@@ -53,6 +53,7 @@ class Tide(Heuristic):
         scoring=None,
         Tmax=None,
         ratio=None,
+        stability_ratio=None,
         N=None,
         Gmax=None,
         gamma=None,
@@ -85,6 +86,7 @@ class Tide(Heuristic):
             Gmax,
             Tmax,
             ratio,
+            stability_ratio,
             suffix,
             verbose,
             output,
@@ -230,6 +232,7 @@ class Tide(Heuristic):
                 pipeline=self.pipeline,
                 scoring=self.scoring,
                 ratio=self.ratio,
+                stability_ratio=self.stability_ratio,
                 cv=self.cv,
                 rng=self._rng,
             )[0]
@@ -273,6 +276,7 @@ class Tide(Heuristic):
                 pipeline=self.pipeline,
                 scoring=self.scoring,
                 ratio=self.ratio,
+                stability_ratio=self.stability_ratio,
                 cv=self.cv,
                 rng=self._rng,
             )[0]
@@ -339,6 +343,7 @@ class Tide(Heuristic):
                         pipeline=self.pipeline,
                         scoring=self.scoring,
                         ratio=self.ratio,
+                        stability_ratio=self.stability_ratio,
                         cv=None,
                         rng=self._rng,
                     )[0]
@@ -548,6 +553,7 @@ class Tide(Heuristic):
             pipeline=self.pipeline,
             scoring=self.scoring,
             ratio=self.ratio,
+            stability_ratio=self.stability_ratio,
             cv=self.cv,
             rng=self._rng,
         )[0]

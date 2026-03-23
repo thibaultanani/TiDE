@@ -117,6 +117,7 @@ def fitness(
     pipeline,
     scoring,
     ratio: float,
+    stability_ratio: float = 0.0,
     cv=None,
     rng: Generator | None = None,
 ):
@@ -148,8 +149,12 @@ def fitness(
                     y_hat = np.asarray(y_hat)
             fold_scores.append(float(scoring(y_te, y_hat)))
         mean_score = float(np.mean(fold_scores)) if fold_scores else float("-inf")
-        score = mean_score - (ratio * (len(subset) / len(columns)))
         fold_std = float(np.std(fold_scores, ddof=1)) if len(fold_scores) > 1 else 0.0
+        score = (
+            mean_score
+            - (ratio * (len(subset) / len(columns)))
+            - (stability_ratio * fold_std)
+        )
         y_pred_series = pd.Series(y_pred)
         if is_clf:
             try:

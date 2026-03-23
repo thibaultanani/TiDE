@@ -53,6 +53,7 @@ class Filter(FeatureSelection):
         Gmax=None,
         Tmax=None,
         ratio=None,
+        stability_ratio=None,
         suffix=None,
         verbose=None,
         output=None,
@@ -73,6 +74,7 @@ class Filter(FeatureSelection):
             Gmax,
             Tmax,
             ratio,
+            stability_ratio,
             suffix,
             verbose,
             output,
@@ -108,6 +110,7 @@ class Filter(FeatureSelection):
                 pipeline=self.pipeline,
                 scoring=self.scoring,
                 ratio=self.ratio,
+                stability_ratio=self.stability_ratio,
                 cv=self.cv,
                 rng=self._rng,
             )[0]
@@ -215,6 +218,7 @@ class Filter(FeatureSelection):
                 pipeline=self.pipeline,
                 scoring=self.scoring,
                 ratio=self.ratio,
+                stability_ratio=self.stability_ratio,
                 cv=None,
                 rng=self._rng,
             )[0]
@@ -233,6 +237,7 @@ class Filter(FeatureSelection):
                 pipeline=self.pipeline,
                 scoring=self.scoring,
                 ratio=self.ratio if ratio is None else ratio,
+                stability_ratio=self.stability_ratio if ratio is None else 0.0,
                 cv=self.cv,
                 rng=self._rng,
             )[0]
@@ -313,6 +318,7 @@ class Filter(FeatureSelection):
             pipeline=self.pipeline,
             scoring=self.scoring,
             ratio=0,
+            stability_ratio=0,
             cv=self.cv,
             rng=self._rng,
         )
@@ -341,6 +347,7 @@ class Filter(FeatureSelection):
             "method_mode_label": self._mode_label(self.selection_mode),
             "internal_evaluation_mode": self._internal_evaluation_mode(),
             "sparsity_ratio": float(self.ratio),
+            "stability_ratio": float(self.stability_ratio),
             "time_budget_seconds": float(self.Tmax),
             "selection_mode": self.selection_mode,
             "selection_mode_label": self._mode_label(self.selection_mode),
@@ -376,6 +383,8 @@ class Filter(FeatureSelection):
                 + f"Internal Evaluation Mode: {self._internal_evaluation_mode()}"
                 + os.linesep
                 + f"Sparsity Ratio: {self.ratio}"
+                + os.linesep
+                + f"Stability Ratio: {self.stability_ratio}"
                 + os.linesep
                 + f"Time Budget (s): {self.Tmax}"
                 + os.linesep
@@ -423,6 +432,7 @@ class Filter(FeatureSelection):
             if out and not out.endswith(os.linesep):
                 f.write(os.linesep)
             f.write(f"Sparsity Ratio: {self.ratio}" + os.linesep)
+            f.write(f"Stability Ratio: {self.stability_ratio}" + os.linesep)
             f.write(f"AUAC (time-normalized): {auac:.6f}" + os.linesep)
             f.write(f"Time-to-best points: {json.dumps(curve_points, ensure_ascii=True)}" + os.linesep)
 

@@ -27,6 +27,7 @@ class FeatureSelection:
         Gmax: Optional[int] = None,
         Tmax: Optional[int] = None,
         ratio: Optional[float] = None,
+        stability_ratio: Optional[float] = None,
         suffix: Optional[str] = None,
         verbose: Optional[bool] = None,
         output: Optional[str] = None,
@@ -64,6 +65,9 @@ class FeatureSelection:
         ratio:
             Penalty weight applied to the proportion of selected features when
             scoring subsets (``0`` disables the sparsity penalty).
+        stability_ratio:
+            Penalty weight applied to the cross-validation standard deviation of
+            the subset score (active only when ``cv`` is used).
         suffix:
             Optional string appended to output directories, useful to
             differentiate runs sharing the same ``name``.
@@ -97,6 +101,7 @@ class FeatureSelection:
         self.Gmax = Gmax or 1_000_000
         self.Tmax = Tmax or 3_600
         self.ratio = ratio if ratio is not None else 0.05
+        self.stability_ratio = stability_ratio if stability_ratio is not None else 0.0
         self.suffix = suffix or ""
         self.verbose = True if verbose is None else verbose
         base_path = Path(os.getcwd()) / (output or "out") / self.name

@@ -85,7 +85,7 @@ class BackwardSelection(Heuristic):
             train=self.train,
             test=self.test,
             columns=self.cols,
-            ind=candidate,
+            ind=self.sanitize_individual(candidate),
             target=self.target,
             pipeline=self.pipeline,
             scoring=self.scoring,

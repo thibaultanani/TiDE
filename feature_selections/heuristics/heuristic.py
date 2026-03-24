@@ -275,6 +275,7 @@ class Heuristic(FeatureSelection):
     def evaluate(self, individual: Sequence[bool]):
         """Evaluate ``individual`` and return the score and predictions."""
 
+        individual = self.sanitize_individual(individual)
         return fitness(
             train=self.train,
             test=self.test,

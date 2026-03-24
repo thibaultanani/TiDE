@@ -143,6 +143,25 @@ class FeatureSelection:
         fn = int(multilabel_cm[:, 1, 0].sum())
         return tp, tn, fp, fn
 
+    def sanitize_individual(self, individual: Sequence[bool] | np.ndarray) -> Sequence[bool] | np.ndarray:
+        """Ensure ``individual`` selects at least one feature, mutating mutable inputs when possible."""
+
+        as_array = np.asarray(individual, dtype=bool)
+        if as_array.any():
+            return individual
+
+        random_index = int(self._rng.integers(0, len(as_array)))
+        if isinstance(individual, np.ndarray):
+            individual[random_index] = True
+            return individual
+        if isinstance(individual, list):
+            individual[random_index] = True
+            return individual
+
+        fixed = as_array.copy()
+        fixed[random_index] = True
+        return fixed
+
     def reset_rng(self) -> None:
         """Reset the internal random generator to its initial seed."""
 
